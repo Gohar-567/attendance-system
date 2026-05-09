@@ -28,11 +28,19 @@ export default async function MePage() {
       role,
       slack_user_id,
       join_date,
-      team:teams ( id, name )
+      team:teams!team_id ( id, name )
     `,
     )
     .eq("id", user.id)
-    .maybeSingle();
+    .maybeSingle<{
+      id: string;
+      full_name: string;
+      email: string;
+      role: string;
+      slack_user_id: string | null;
+      join_date: string;
+      team: { id: string; name: string } | null;
+    }>();
 
   return (
     <main className="mx-auto max-w-2xl px-6 py-12">
@@ -60,14 +68,7 @@ export default async function MePage() {
         <dl className="grid grid-cols-1 gap-x-6 gap-y-4 rounded-lg border bg-card p-6 sm:grid-cols-2">
           <Field label="Name" value={employee.full_name} />
           <Field label="Email" value={employee.email} />
-          <Field
-            label="Team"
-            value={
-              Array.isArray(employee.team)
-                ? employee.team[0]?.name
-                : (employee.team as { name?: string } | null)?.name ?? "—"
-            }
-          />
+          <Field label="Team" value={employee.team?.name ?? "—"} />
           <Field label="Role" value={employee.role} />
           <Field
             label="Slack user ID"
