@@ -122,8 +122,13 @@ async function handleAttendanceMessage(opts: {
 
   const parsed = parseMessage(rawText);
 
+  // Deliberate non-events (checkout / signing off): drop on the floor.
+  // No log, no DM, no reaction — the user already marked themselves
+  // present earlier in the day.
+  if (parsed.kind === "ignore") return;
+
   // No regex matched at all → DM + log as failed.
-  if (!parsed) {
+  if (parsed.kind === "none") {
     const { alreadyProcessed } = await recordParse({
       slackUserId,
       channelId,
@@ -150,6 +155,7 @@ async function handleAttendanceMessage(opts: {
       parsedType: parsed.type,
       parsedHalf: parsed.half,
       parsedDate: date,
+      parsedReason: parsed.name,
       confidence: parsed.confidence,
     });
     if (alreadyProcessed) return;
@@ -182,7 +188,7 @@ async function handleAttendanceMessage(opts: {
     parsedType: parsed.type,
     parsedHalf: parsed.half,
     parsedDate: date,
-    parsedReason: rawText,
+    parsedReason: parsed.name,
     confidence: parsed.confidence,
     attendanceLogId,
   });
