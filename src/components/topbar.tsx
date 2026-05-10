@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Settings as SettingsIcon } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -73,6 +74,16 @@ export function TopBar({
           )}
           <Button variant="ghost" size="sm" asChild>
             <Link href="/me">Profile</Link>
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            asChild
+            title="Notification settings"
+          >
+            <Link href="/settings" aria-label="Settings">
+              <SettingsIcon className="h-4 w-4" />
+            </Link>
           </Button>
         </div>
       </div>

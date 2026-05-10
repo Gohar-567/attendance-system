@@ -19,7 +19,7 @@ export const runtime = "nodejs";
  * Vercel attaches `Authorization: Bearer <CRON_SECRET>` when CRON_SECRET is
  * set on the project; we verify it here.
  */
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   const auth = req.headers.get("authorization");
   if (cronSecret && auth !== `Bearer ${cronSecret}`) {

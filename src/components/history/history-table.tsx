@@ -129,8 +129,47 @@ export function HistoryTable({ logs, totals }: HistoryTableProps) {
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-hidden rounded-lg border bg-card">
+      {/* Mobile: card list. Desktop (sm+): table. */}
+      <div className="space-y-2 sm:hidden">
+        {filtered.length === 0 ? (
+          <div className="rounded-lg border bg-card px-3 py-12 text-center text-sm text-muted-foreground">
+            No entries match these filters.
+          </div>
+        ) : (
+          filtered.map((l) => (
+            <div key={l.id} className="rounded-lg border bg-card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="text-sm font-medium tabular-nums">
+                    {longDate(l.date)}
+                  </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground capitalize">
+                    {TYPE_LABEL[l.type]}
+                    {l.half !== "full" && ` · ${l.half.replace("_", " ")}`}
+                    {" · "}
+                    {l.source.replace("_", " ")}
+                  </div>
+                </div>
+                <Badge
+                  variant={
+                    l.status === "rejected" ? "destructive" : "secondary"
+                  }
+                  className="capitalize"
+                >
+                  {l.status.replace("_", " ")}
+                </Badge>
+              </div>
+              {l.reason && (
+                <div className="mt-2 text-sm text-muted-foreground">
+                  {l.reason}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="hidden overflow-hidden rounded-lg border bg-card sm:block">
         <table className="w-full text-sm">
           <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
