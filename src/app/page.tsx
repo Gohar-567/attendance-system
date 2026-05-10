@@ -119,6 +119,13 @@ export default async function DashboardPage() {
           employee.role === "admin" ||
           employee.team?.lead_id === employee.id
         }
+        adminLink={
+          employee.role === "hr" || employee.role === "admin"
+            ? "hr"
+            : employee.team?.lead_id === employee.id
+              ? "lead"
+              : undefined
+        }
       />
 
       <main className="mx-auto max-w-5xl space-y-5 px-4 py-6 sm:space-y-6 sm:px-6 sm:py-8">
