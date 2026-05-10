@@ -26,6 +26,8 @@ export interface ApprovalItem {
   requesterName: string;
   requesterTeam: string | null;
   escalated: boolean;
+  /** Optional routing badge text shown next to the Pending pill. */
+  routingBadge?: string;
 }
 
 export function ApprovalsList({ items }: { items: ApprovalItem[] }) {
@@ -121,6 +123,9 @@ export function ApprovalsList({ items }: { items: ApprovalItem[] }) {
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {it.routingBadge && (
+                      <Badge variant="outline">{it.routingBadge}</Badge>
+                    )}
                     {it.escalated && (
                       <Badge variant="destructive">
                         <AlertTriangle className="mr-1 h-3 w-3" />
