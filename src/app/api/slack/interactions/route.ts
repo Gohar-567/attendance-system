@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { verifySlackSignature } from "@/lib/slack/signature";
+import { slackClient } from "@/lib/slack/client";
 import {
   resolveEmployeeBySlackId,
   notifyUnknownUser,
@@ -14,19 +15,48 @@ import {
   BLOCK_IDS,
   decodeTypeValue,
 } from "@/lib/slack/modal";
+import {
+  LEAVE_REJECT_BLOCK,
+  LEAVE_REJECT_CALLBACK,
+  LEAVE_REJECT_INPUT,
+  buildLeaveRejectModal,
+} from "@/lib/slack/leave-reject-modal";
+import { decideLeaveRequest } from "@/lib/leave/decide";
+import { canActOn, getApproversFor } from "@/lib/leave/routing";
+import { submitLeaveRequest } from "@/lib/leave/submit";
+import type { ApproverEmployee, LeaveRequest } from "@/lib/leave/types";
 
 export const runtime = "nodejs";
 
-/**
- * Generic Slack interactions endpoint. Slack always sends a single form
- * field `payload` containing JSON; the JSON's `type` discriminates.
- *
- * Supported here:
- *   - view_submission (callback_id = ATTENDANCE_MODAL_CALLBACK) — write
- *     the row from the /attendance modal.
- *
- * Block-action button clicks (leave approval) land here too in Phase 4.
- */
+interface SlackBlockValue {
+  type: string;
+  selected_option?: { value: string };
+  selected_date?: string;
+  value?: string;
+}
+
+interface SlackBlockAction {
+  action_id: string;
+  block_id: string;
+  value?: string;
+}
+
+interface SlackInteractionPayload {
+  type: string;
+  trigger_id?: string;
+  user?: { id: string; name?: string };
+  view?: {
+    callback_id?: string;
+    private_metadata?: string;
+    state?: {
+      values?: Record<string, Record<string, SlackBlockValue>>;
+    };
+  };
+  actions?: SlackBlockAction[];
+  message?: { ts?: string };
+  channel?: { id?: string };
+}
+
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
 
@@ -59,6 +89,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "invalid payload" }, { status: 400 });
   }
 
+  // Slash-command modal submission (Phase 3).
   if (
     payload.type === "view_submission" &&
     payload.view?.callback_id === ATTENDANCE_MODAL_CALLBACK
@@ -66,25 +97,33 @@ export async function POST(req: NextRequest) {
     return handleAttendanceModalSubmit(payload);
   }
 
+  // Leave reject modal submission.
+  if (
+    payload.type === "view_submission" &&
+    payload.view?.callback_id === LEAVE_REJECT_CALLBACK
+  ) {
+    return handleLeaveRejectModalSubmit(payload);
+  }
+
+  // Approve / Reject button clicks on the approval DM.
+  if (payload.type === "block_actions" && payload.actions?.length) {
+    const action = payload.actions[0];
+    if (action.action_id.startsWith("leave_approve:")) {
+      // Ack immediately; do work after.
+      handleLeaveApproveClick(payload).catch((e) =>
+        console.error("leave_approve handler failed", e),
+      );
+      return new NextResponse("", { status: 200 });
+    }
+    if (action.action_id.startsWith("leave_reject:")) {
+      handleLeaveRejectClick(payload).catch((e) =>
+        console.error("leave_reject handler failed", e),
+      );
+      return new NextResponse("", { status: 200 });
+    }
+  }
+
   return new NextResponse("", { status: 200 });
-}
-
-interface SlackInteractionPayload {
-  type: string;
-  user?: { id: string };
-  view?: {
-    callback_id?: string;
-    state?: {
-      values?: Record<string, Record<string, SlackBlockValue>>;
-    };
-  };
-}
-
-interface SlackBlockValue {
-  type: string;
-  selected_option?: { value: string };
-  selected_date?: string;
-  value?: string;
 }
 
 async function handleAttendanceModalSubmit(payload: SlackInteractionPayload) {
@@ -111,7 +150,6 @@ async function handleAttendanceModalSubmit(payload: SlackInteractionPayload) {
 
   const employee = await resolveEmployeeBySlackId(slackUserId);
   if (!employee) {
-    // Send the modal-error response (closes the modal cleanly) and DM in the background.
     notifyUnknownUser(slackUserId).catch((e) =>
       console.warn("notifyUnknownUser failed", e),
     );
@@ -125,34 +163,27 @@ async function handleAttendanceModalSubmit(payload: SlackInteractionPayload) {
   }
 
   const decoded = decodeTypeValue(typeValue);
-
-  // Always record the slash-command submission in slack_parse_log so the
-  // admin parser-log view shows manual entries alongside auto-parsed ones.
-  // Use the Slack user id and a synthetic message ts so retries don't dupe.
   const messageTs = `slash:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 
+  // Full leave routes through the proper submit pipeline (DM the approver).
   if (decoded.attendanceType === "full_leave" && decoded.leaveType) {
-    // Phase 3: drop a placeholder pending leave_requests row. Phase 4 wires
-    // the real approval flow + Slack DM to the approver.
-    const admin = createAdminClient();
-    const { error } = await admin.from("leave_requests").insert({
-      employee_id: employee.id,
+    const result = await submitLeaveRequest({
+      employeeId: employee.id,
       type: decoded.leaveType,
-      from_date: date,
-      to_date: date,
+      fromDate: date,
+      toDate: date,
       reason,
-      status: "pending",
     });
-    if (error) {
-      console.error("leave_requests insert failed", error);
+
+    if (!result.ok) {
       await dmSlackUser(
         slackUserId,
-        `:warning: Couldn't submit your leave request: ${error.message}`,
+        `:warning: Couldn't submit your leave request: ${result.error}`,
       );
     } else {
       await dmSlackUser(
         slackUserId,
-        `:hourglass: Leave request submitted for *${date}*. Approval workflow lands in the next release — for now it sits as pending.`,
+        `:hourglass: Leave request submitted for *${date}*. ${result.routedTo === "team_lead" ? "Your team lead has been notified." : "HR has been notified."}`,
       );
     }
 
@@ -171,7 +202,7 @@ async function handleAttendanceModalSubmit(payload: SlackInteractionPayload) {
     return new NextResponse("", { status: 200 });
   }
 
-  // Direct write to attendance_logs for wfh / ewd / sick / half_leave.
+  // wfh / ewd / sick / half_leave: direct attendance write.
   const attendanceLogId = await upsertAttendanceLog({
     employeeId: employee.id,
     date,
@@ -201,6 +232,131 @@ async function handleAttendanceModalSubmit(payload: SlackInteractionPayload) {
     slackUserId,
     `:white_check_mark: Logged *${typeValue.replace(":", " — ")}* for *${date}*.`,
   );
+
+  return new NextResponse("", { status: 200 });
+}
+
+async function handleLeaveApproveClick(payload: SlackInteractionPayload) {
+  const slackUserId = payload.user?.id;
+  const action = payload.actions?.[0];
+  if (!slackUserId || !action) return;
+  const requestId = action.action_id.split(":")[1];
+
+  const actor = await resolveEmployeeBySlackId(slackUserId);
+  if (!actor) {
+    await notifyUnknownUser(slackUserId);
+    return;
+  }
+
+  // Authorization gate: ensure this Slack user can act on this request now.
+  const admin = createAdminClient();
+  const { data: req } = await admin
+    .from("leave_requests")
+    .select("id, employee_id, created_at, status")
+    .eq("id", requestId)
+    .maybeSingle<Pick<LeaveRequest, "id" | "employee_id" | "created_at" | "status">>();
+  if (!req) return;
+  const routing = await getApproversFor(admin, req);
+  if (!canActOn(actor as ApproverEmployee, req, routing)) {
+    await dmSlackUser(
+      slackUserId,
+      `:no_entry_sign: You're no longer authorized to act on that request — it may have escalated to HR.`,
+    );
+    return;
+  }
+
+  await decideLeaveRequest({
+    requestId,
+    decider: actor as ApproverEmployee,
+    action: "approve",
+    note: null,
+  });
+}
+
+async function handleLeaveRejectClick(payload: SlackInteractionPayload) {
+  const action = payload.actions?.[0];
+  const triggerId = payload.trigger_id;
+  const slackUserId = payload.user?.id;
+  if (!action || !triggerId || !slackUserId) return;
+  const requestId = action.action_id.split(":")[1];
+
+  // Look up requester name to show in the modal.
+  const admin = createAdminClient();
+  const { data: req } = await admin
+    .from("leave_requests")
+    .select("id, employee_id")
+    .eq("id", requestId)
+    .maybeSingle<Pick<LeaveRequest, "id" | "employee_id">>();
+  let requesterName = "the requester";
+  if (req) {
+    const { data: emp } = await admin
+      .from("employees")
+      .select("full_name")
+      .eq("id", req.employee_id)
+      .maybeSingle();
+    if (emp?.full_name) requesterName = emp.full_name;
+  }
+
+  try {
+    await slackClient().views.open({
+      trigger_id: triggerId,
+      view: buildLeaveRejectModal({ requestId, requesterName }),
+    });
+  } catch (err) {
+    console.warn("views.open (reject modal) failed", err);
+  }
+}
+
+async function handleLeaveRejectModalSubmit(payload: SlackInteractionPayload) {
+  const slackUserId = payload.user?.id;
+  const requestId = payload.view?.private_metadata;
+  if (!slackUserId || !requestId) return new NextResponse("", { status: 200 });
+
+  const note =
+    payload.view?.state?.values?.[LEAVE_REJECT_BLOCK]?.[LEAVE_REJECT_INPUT]
+      ?.value?.trim() || null;
+  if (!note) {
+    return NextResponse.json({
+      response_action: "errors",
+      errors: { [LEAVE_REJECT_BLOCK]: "Give a brief reason" },
+    });
+  }
+
+  const actor = await resolveEmployeeBySlackId(slackUserId);
+  if (!actor) {
+    return NextResponse.json({
+      response_action: "errors",
+      errors: { [LEAVE_REJECT_BLOCK]: "You're not in the system yet" },
+    });
+  }
+
+  const admin = createAdminClient();
+  const { data: req } = await admin
+    .from("leave_requests")
+    .select("id, employee_id, created_at, status")
+    .eq("id", requestId)
+    .maybeSingle<Pick<LeaveRequest, "id" | "employee_id" | "created_at" | "status">>();
+  if (!req) {
+    return NextResponse.json({
+      response_action: "errors",
+      errors: { [LEAVE_REJECT_BLOCK]: "Request not found" },
+    });
+  }
+  const routing = await getApproversFor(admin, req);
+  if (!canActOn(actor as ApproverEmployee, req, routing)) {
+    return NextResponse.json({
+      response_action: "errors",
+      errors: { [LEAVE_REJECT_BLOCK]: "Not authorized" },
+    });
+  }
+
+  // Run the decision after we ack the modal so Slack closes it cleanly.
+  decideLeaveRequest({
+    requestId,
+    decider: actor as ApproverEmployee,
+    action: "reject",
+    note,
+  }).catch((e) => console.error("reject decide failed", e));
 
   return new NextResponse("", { status: 200 });
 }
