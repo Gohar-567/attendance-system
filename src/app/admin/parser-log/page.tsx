@@ -17,6 +17,12 @@ interface ParseLogRow {
   parsed_type: string | null;
   parsed_half: string | null;
   parsed_date: string | null;
+  /**
+   * For regex matches this stores the pattern name (e.g. `present_checkin`)
+   * so HR can spot which rule fired. For slash_command rows it stores the
+   * user-typed reason. Disambiguate by `method`.
+   */
+  parsed_reason: string | null;
   confidence: number | null;
   attendance_log_id: string | null;
   created_at: string;
@@ -66,7 +72,7 @@ export default async function ParserLogPage() {
   const { data: rows } = await supabase
     .from("slack_parse_log")
     .select(
-      "id, slack_user_id, slack_channel_id, slack_message_ts, raw_text, method, parsed_type, parsed_half, parsed_date, confidence, attendance_log_id, created_at",
+      "id, slack_user_id, slack_channel_id, slack_message_ts, raw_text, method, parsed_type, parsed_half, parsed_date, parsed_reason, confidence, attendance_log_id, created_at",
     )
     .order("created_at", { ascending: false })
     .limit(50);
@@ -94,6 +100,7 @@ export default async function ParserLogPage() {
                   <th className="px-3 py-2 font-medium">User</th>
                   <th className="px-3 py-2 font-medium">Method</th>
                   <th className="px-3 py-2 font-medium">Type</th>
+                  <th className="px-3 py-2 font-medium">Pattern</th>
                   <th className="px-3 py-2 font-medium">Conf.</th>
                   <th className="px-3 py-2 font-medium">Status</th>
                   <th className="px-3 py-2 font-medium">Raw text</th>
@@ -103,7 +110,7 @@ export default async function ParserLogPage() {
                 {logs.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={7}
+                      colSpan={8}
                       className="px-3 py-12 text-center text-sm text-muted-foreground"
                     >
                       No parse-log rows yet. Post in #attendance to populate.
@@ -155,6 +162,9 @@ function ParseRow({ row }: { row: ParseLogRow }) {
         ) : (
           <span className="text-muted-foreground">—</span>
         )}
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-muted-foreground">
+        {row.parsed_reason ?? "—"}
       </td>
       <td className="whitespace-nowrap px-3 py-2 tabular-nums">
         {row.confidence != null ? row.confidence.toFixed(2) : "—"}
