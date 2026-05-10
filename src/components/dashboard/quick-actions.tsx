@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 import { Home, Pause, Plane } from "lucide-react";
 
@@ -40,14 +41,11 @@ export function QuickActions({ todayMarked }: { todayMarked: boolean }) {
           Half day
         </Button>
 
-        <Button
-          variant="outline"
-          className="w-full"
-          disabled
-          title="Coming in Phase 4"
-        >
-          <Plane className="h-4 w-4" />
-          Request leave
+        <Button variant="outline" className="w-full" asChild>
+          <Link href="/leave/new">
+            <Plane className="h-4 w-4" />
+            Request leave
+          </Link>
         </Button>
       </div>
       {error && <p className="text-xs text-destructive">{error}</p>}

@@ -9,6 +9,7 @@ interface TopBarProps {
   teamName?: string | null;
   monthISO?: string;
   showHistoryLink?: boolean;
+  showApprovalsLink?: boolean;
 }
 
 export function TopBar({
@@ -16,6 +17,7 @@ export function TopBar({
   teamName,
   monthISO,
   showHistoryLink = true,
+  showApprovalsLink = false,
 }: TopBarProps) {
   const initials = fullName
     .split(/\s+/)
@@ -46,6 +48,14 @@ export function TopBar({
           <span className="hidden text-sm font-medium text-muted-foreground sm:inline">
             {displayMonth}
           </span>
+          {showApprovalsLink && (
+            <Button variant="ghost" size="sm" asChild>
+              <Link href="/approvals">Approvals</Link>
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/leave">Leaves</Link>
+          </Button>
           {showHistoryLink && (
             <Button variant="ghost" size="sm" asChild>
               <Link href="/history">History</Link>

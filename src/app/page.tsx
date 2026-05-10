@@ -37,16 +37,17 @@ export default async function DashboardPage() {
   const { data: employee } = await supabase
     .from("employees")
     .select(
-      `id, full_name, slack_user_id, team_id,
-       team:teams!team_id ( id, name )`,
+      `id, full_name, role, slack_user_id, team_id,
+       team:teams!team_id ( id, name, lead_id )`,
     )
     .eq("id", user.id)
     .maybeSingle<{
       id: string;
       full_name: string;
+      role: "employee" | "team_lead" | "hr" | "admin";
       slack_user_id: string | null;
       team_id: string | null;
-      team: { id: string; name: string } | null;
+      team: { id: string; name: string; lead_id: string | null } | null;
     }>();
 
   if (!employee) {
@@ -113,6 +114,11 @@ export default async function DashboardPage() {
       <TopBar
         fullName={employee.full_name}
         teamName={employee.team?.name ?? null}
+        showApprovalsLink={
+          employee.role === "hr" ||
+          employee.role === "admin" ||
+          employee.team?.lead_id === employee.id
+        }
       />
 
       <main className="mx-auto max-w-5xl space-y-5 px-4 py-6 sm:space-y-6 sm:px-6 sm:py-8">
