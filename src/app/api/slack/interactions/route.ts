@@ -25,6 +25,7 @@ import { decideLeaveRequest } from "@/lib/leave/decide";
 import { canActOn, getApproversFor } from "@/lib/leave/routing";
 import { submitLeaveRequest } from "@/lib/leave/submit";
 import type { ApproverEmployee, LeaveRequest } from "@/lib/leave/types";
+import { buildNudgeAcknowledgedBlocks } from "@/lib/cron/nudge";
 
 export const runtime = "nodejs";
 
@@ -118,6 +119,12 @@ export async function POST(req: NextRequest) {
     if (action.action_id.startsWith("leave_reject:")) {
       handleLeaveRejectClick(payload).catch((e) =>
         console.error("leave_reject handler failed", e),
+      );
+      return new NextResponse("", { status: 200 });
+    }
+    if (action.action_id.startsWith("nudge:")) {
+      handleNudgeClick(payload).catch((e) =>
+        console.error("nudge handler failed", e),
       );
       return new NextResponse("", { status: 200 });
     }
@@ -359,4 +366,57 @@ async function handleLeaveRejectModalSubmit(payload: SlackInteractionPayload) {
   }).catch((e) => console.error("reject decide failed", e));
 
   return new NextResponse("", { status: 200 });
+}
+
+
+async function handleNudgeClick(payload: SlackInteractionPayload) {
+  const slackUserId = payload.user?.id;
+  const action = payload.actions?.[0];
+  const channelId = payload.channel?.id;
+  const messageTs = payload.message?.ts;
+  if (!slackUserId || !action) return;
+
+  // action_id format: nudge:<type>:<date>
+  const parts = action.action_id.split(":");
+  const type = parts[1] as
+    | "present"
+    | "wfh"
+    | "half_leave"
+    | "sick";
+  const date = parts[2];
+  if (!type || !date) return;
+
+  const employee = await resolveEmployeeBySlackId(slackUserId);
+  if (!employee) {
+    await notifyUnknownUser(slackUserId);
+    return;
+  }
+
+  await upsertAttendanceLog({
+    employeeId: employee.id,
+    date,
+    type,
+    half: type === "half_leave" ? "first_half" : "full",
+    source: "slack",
+    status: "confirmed",
+    createdBy: employee.id,
+  });
+
+  // Edit the original DM so the buttons disappear and the choice is shown.
+  if (channelId && messageTs) {
+    try {
+      await slackClient().chat.update({
+        channel: channelId,
+        ts: messageTs,
+        text: `Logged ${type} for ${date}`,
+        blocks: buildNudgeAcknowledgedBlocks({
+          fullName: employee.full_name,
+          date,
+          type,
+        }) as never,
+      });
+    } catch (err) {
+      console.warn("nudge chat.update failed", err);
+    }
+  }
 }

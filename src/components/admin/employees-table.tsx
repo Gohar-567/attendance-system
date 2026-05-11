@@ -78,7 +78,104 @@ export function EmployeesTable({ employees, teams }: EmployeesTableProps) {
         </Button>
       </div>
 
-      <Card>
+      {/* Mobile: card stack */}
+      <div className="space-y-2 sm:hidden">
+        {filtered.length === 0 ? (
+          <Card>
+            <CardContent className="px-3 py-12 text-center text-sm text-muted-foreground">
+              No employees match.
+            </CardContent>
+          </Card>
+        ) : (
+          filtered.map((e) => {
+            const isCustom =
+              e.leave_allowances.casual !== DEFAULT_ALLOWANCES.casual ||
+              e.leave_allowances.sick !== DEFAULT_ALLOWANCES.sick ||
+              e.leave_allowances.annual !== DEFAULT_ALLOWANCES.annual;
+            const initials = e.full_name
+              .split(/\s+/)
+              .filter(Boolean)
+              .slice(0, 2)
+              .map((s) => s[0]?.toUpperCase())
+              .join("");
+            return (
+              <Card
+                key={e.id}
+                className={e.is_active ? "" : "opacity-60"}
+              >
+                <CardContent className="space-y-2 p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-9 w-9">
+                        <AvatarFallback>{initials}</AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <div className="text-sm font-medium">
+                          {e.full_name}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {e.email}
+                        </div>
+                      </div>
+                    </div>
+                    {e.is_active ? (
+                      <Badge variant="default">Active</Badge>
+                    ) : (
+                      <Badge variant="outline">Inactive</Badge>
+                    )}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                    <Badge variant="secondary" className="capitalize">
+                      {e.role.replace("_", " ")}
+                    </Badge>
+                    {e.team_name && (
+                      <Badge variant="outline">{e.team_name}</Badge>
+                    )}
+                    <Badge variant="outline" className="font-mono">
+                      {e.leave_allowances.casual}/
+                      {e.leave_allowances.sick}/
+                      {e.leave_allowances.annual}
+                    </Badge>
+                    {isCustom && (
+                      <Badge variant="secondary">custom</Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center justify-end gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setEditing(e)}
+                    >
+                      Edit
+                    </Button>
+                    {e.is_active ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleDeactivate(e)}
+                        disabled={pendingId === e.id}
+                      >
+                        Deactivate
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => handleReactivate(e)}
+                        disabled={pendingId === e.id}
+                      >
+                        Reactivate
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })
+        )}
+      </div>
+
+      <Card className="hidden sm:block">
         <CardContent className="overflow-x-auto p-0">
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-left text-xs uppercase tracking-wide text-muted-foreground">
