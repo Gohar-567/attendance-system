@@ -23,7 +23,7 @@ export type ParseOutcome =
       intent: ParseIntent;
       type?: AttendanceType;
       half?: AttendanceHalf;
-      /** TIMETZ "HH:MM:SS+05" if the message contained a time. */
+      /** Postgres TIME "HH:MM:SS" if the message contained a time. */
       time?: string;
       confidence: number;
       name: string;

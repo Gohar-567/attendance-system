@@ -29,7 +29,7 @@ export interface EditAttendanceInput {
   type: EditableType;
   half: AttendanceHalf;
   reason: string | null;
-  /** Phase 7C — TIMETZ "HH:MM:SS+05" or null to clear. Undefined =
+  /** Phase 7C — Postgres TIME "HH:MM:SS" or null to clear. Undefined =
    *  don't touch this column. Only applies to type ∈ Present/WFH/EWD;
    *  the SQL trigger ignores times for half/sick/leave/holiday. */
   checkinTime?: string | null;
@@ -43,8 +43,8 @@ export interface BackdatedAttendanceInput {
   type: EditableType;
   half: AttendanceHalf;
   reason: string | null;
-  /** Phase 7C — TIMETZ strings; only sent for Present / WFH / EWD types
-   *  that the form's UI exposes time pickers for. */
+  /** Phase 7C — Postgres TIME strings; only sent for Present / WFH /
+   *  EWD types that the form's UI exposes time pickers for. */
   checkinTime?: string | null;
   checkoutTime?: string | null;
 }
