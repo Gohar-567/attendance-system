@@ -82,7 +82,7 @@ export default async function AdminDashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopBar fullName={actor.full_name} teamName={null} adminLink="hr" />
+      <TopBar />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>

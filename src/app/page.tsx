@@ -111,22 +111,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopBar
-        fullName={employee.full_name}
-        teamName={employee.team?.name ?? null}
-        showApprovalsLink={
-          employee.role === "hr" ||
-          employee.role === "admin" ||
-          employee.team?.lead_id === employee.id
-        }
-        adminLink={
-          employee.role === "hr" || employee.role === "admin"
-            ? "hr"
-            : employee.team?.lead_id === employee.id
-              ? "lead"
-              : undefined
-        }
-      />
+      <TopBar />
 
       <main className="mx-auto max-w-5xl space-y-5 px-4 py-6 sm:space-y-6 sm:px-6 sm:py-8">
         {isFirstTime ? (
@@ -159,6 +144,10 @@ export default async function DashboardPage() {
                     date: h.date,
                     name: h.name,
                   }))}
+                  currentUserId={employee.id}
+                  isHr={
+                    employee.role === "hr" || employee.role === "admin"
+                  }
                 />
               </CardContent>
             </Card>
@@ -174,7 +163,7 @@ export default async function DashboardPage() {
 function UnlinkedShell({ email }: { email: string }) {
   return (
     <div className="min-h-screen bg-background">
-      <TopBar fullName="Account" teamName={null} showHistoryLink={false} />
+      <TopBar />
       <main className="mx-auto max-w-2xl px-4 py-12">
         <Card>
           <CardContent className="space-y-2 p-6">

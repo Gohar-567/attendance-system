@@ -18,16 +18,6 @@ export default async function MyLeavesPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: me } = await supabase
-    .from("employees")
-    .select(`id, full_name, team:teams!team_id ( id, name )`)
-    .eq("id", user.id)
-    .maybeSingle<{
-      id: string;
-      full_name: string;
-      team: { id: string; name: string } | null;
-    }>();
-
   const { data: rows } = await supabase
     .from("leave_requests")
     .select(
@@ -40,10 +30,7 @@ export default async function MyLeavesPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopBar
-        fullName={me?.full_name ?? "You"}
-        teamName={me?.team?.name ?? null}
-      />
+      <TopBar />
       <main className="mx-auto max-w-3xl space-y-5 px-4 py-6 sm:px-6 sm:py-8">
         <div className="flex items-end justify-between gap-4">
           <div>

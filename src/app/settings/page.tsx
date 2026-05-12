@@ -32,7 +32,7 @@ export default async function SettingsPage() {
   if (!employee) {
     return (
       <div className="min-h-screen bg-background">
-        <TopBar fullName="Account" teamName={null} />
+        <TopBar />
         <main className="mx-auto max-w-2xl px-4 py-12">
           <Card>
             <CardContent className="space-y-2 p-6 text-sm text-muted-foreground">
@@ -47,10 +47,7 @@ export default async function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopBar
-        fullName={employee.full_name}
-        teamName={employee.team?.name ?? null}
-      />
+      <TopBar />
       <main className="mx-auto max-w-2xl space-y-5 px-4 py-6 sm:px-6 sm:py-8">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
