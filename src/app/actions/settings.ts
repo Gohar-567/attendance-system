@@ -3,15 +3,11 @@
 import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
-
-export interface UpdatePrefsInput {
-  digest_enabled: boolean;
-  nudge_enabled: boolean;
-}
+import type { ActionResult, UpdatePrefsInput } from "./types";
 
 export async function updateNotificationPrefsAction(
   input: UpdatePrefsInput,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<ActionResult> {
   const supabase = await createClient();
   const {
     data: { user },

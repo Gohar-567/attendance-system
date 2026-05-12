@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Plus, Search } from "lucide-react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useState, useTransition } from "react";
+import { CalendarDays, Plus, Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -29,6 +31,17 @@ export function EmployeesTable({ employees, teams }: EmployeesTableProps) {
   const [adding, setAdding] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+
+  // Deep-link from /admin/employees/[id]'s "Edit profile" button via
+  // ?edit=<id> — opens the dialog on mount.
+  const searchParams = useSearchParams();
+  const editParam = searchParams.get("edit");
+  useEffect(() => {
+    if (!editParam) return;
+    const match = employees.find((e) => e.id === editParam);
+    if (match) setEditing(match);
+    // Re-run if the query string changes, or new employees are loaded.
+  }, [editParam, employees]);
 
   const filtered = query
     ? employees.filter(
@@ -140,7 +153,13 @@ export function EmployeesTable({ employees, teams }: EmployeesTableProps) {
                       <Badge variant="secondary">custom</Badge>
                     )}
                   </div>
-                  <div className="flex items-center justify-end gap-1.5">
+                  <div className="flex flex-wrap items-center justify-end gap-1.5">
+                    <Button size="sm" variant="outline" asChild>
+                      <Link href={`/admin/employees/${e.id}`}>
+                        <CalendarDays className="h-4 w-4" />
+                        View calendar
+                      </Link>
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
@@ -254,6 +273,12 @@ export function EmployeesTable({ employees, teams }: EmployeesTableProps) {
                       </td>
                       <td className="px-3 py-2 text-right">
                         <div className="flex items-center justify-end gap-1.5">
+                          <Button size="sm" variant="outline" asChild>
+                            <Link href={`/admin/employees/${e.id}`}>
+                              <CalendarDays className="h-4 w-4" />
+                              View
+                            </Link>
+                          </Button>
                           <Button
                             size="sm"
                             variant="outline"

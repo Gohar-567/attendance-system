@@ -124,7 +124,7 @@ export default async function AdminDashboardPage() {
           <h2 className="mb-2 text-sm font-semibold tracking-tight">
             Team grid · today
           </h2>
-          <TeamGrid rows={snapshot} />
+          <TeamGrid rows={snapshot} linkBase="/admin/employees" />
         </div>
       </main>
     </div>

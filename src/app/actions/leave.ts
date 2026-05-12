@@ -4,16 +4,14 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { decideLeaveRequest, type DecideAction } from "@/lib/leave/decide";
+import { decideLeaveRequest } from "@/lib/leave/decide";
 import { getApproversFor, canActOn } from "@/lib/leave/routing";
 import { submitLeaveRequest } from "@/lib/leave/submit";
 import type { ApproverEmployee, LeaveRequest, LeaveType } from "@/lib/leave/types";
-
-export interface LeaveActionResult {
-  ok: boolean;
-  error?: string;
-  requestId?: string;
-}
+import type {
+  DecideLeaveAction,
+  LeaveActionResult,
+} from "./types";
 
 export async function submitLeaveAction(input: {
   type: LeaveType;
@@ -49,7 +47,7 @@ export async function submitLeaveAction(input: {
 
 export async function decideLeaveAction(input: {
   requestId: string;
-  action: DecideAction;
+  action: DecideLeaveAction;
   note: string | null;
 }): Promise<LeaveActionResult> {
   const supabase = await createClient();

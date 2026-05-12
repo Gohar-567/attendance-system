@@ -4,11 +4,12 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-
-interface ActionResult {
-  ok: boolean;
-  error?: string;
-}
+import type {
+  ActionResult,
+  CreateEmployeeInput,
+  CreateTeamInput,
+  UpdateEmployeeInput,
+} from "./types";
 
 const DEFAULT_ALLOWANCES = { casual: 10, sick: 8, annual: 14 } as const;
 
@@ -40,15 +41,6 @@ function bumpAdminPaths() {
   revalidatePath("/admin/employees");
   revalidatePath("/admin/teams");
   revalidatePath("/admin/report");
-}
-
-export interface CreateEmployeeInput {
-  full_name: string;
-  email: string;
-  team_id: string | null;
-  role: "employee" | "team_lead" | "hr" | "admin";
-  join_date: string;
-  allowances?: { casual: number; sick: number; annual: number };
 }
 
 export async function createEmployeeAction(
@@ -91,17 +83,6 @@ export async function createEmployeeAction(
 
   bumpAdminPaths();
   return { ok: true, employeeId: data.id };
-}
-
-export interface UpdateEmployeeInput {
-  id: string;
-  full_name?: string;
-  email?: string;
-  team_id?: string | null;
-  role?: "employee" | "team_lead" | "hr" | "admin";
-  join_date?: string;
-  is_active?: boolean;
-  allowances?: { casual: number; sick: number; annual: number };
 }
 
 export async function updateEmployeeAction(
@@ -161,11 +142,6 @@ export async function reactivateEmployeeAction(
   id: string,
 ): Promise<ActionResult> {
   return updateEmployeeAction({ id, is_active: true });
-}
-
-export interface CreateTeamInput {
-  name: string;
-  lead_id: string | null;
 }
 
 export async function createTeamAction(
