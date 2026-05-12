@@ -1,0 +1,150 @@
+/**
+ * Time helpers for hours tracking (Phase 7C).
+ *
+ * All times in the system are interpreted in Asia/Karachi (UTC+5, no DST)
+ * and serialized as TIMETZ strings — e.g. "09:30:00+05".
+ *
+ * Postgres returns TIMETZ as either "09:30:00+05" or "09:30:00+05:00"
+ * depending on the driver; both forms are handled by the parsers below.
+ */
+
+export const PK_TZ = "Asia/Karachi";
+export const PK_OFFSET = "+05";
+
+/** Current local time-of-day in Pakistan as a TIMETZ string. */
+export function currentKarachiTime(): string {
+  const now = new Date();
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: PK_TZ,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const parts = fmt.formatToParts(now);
+  const h = parts.find((p) => p.type === "hour")?.value ?? "00";
+  const m = parts.find((p) => p.type === "minute")?.value ?? "00";
+  const s = parts.find((p) => p.type === "second")?.value ?? "00";
+  // 24h Intl can produce "24:NN" at midnight in some engines; normalise.
+  const hh = h === "24" ? "00" : h;
+  return `${hh}:${m}:${s}${PK_OFFSET}`;
+}
+
+/**
+ * Parse a TIMETZ string into hour, minute, second components.
+ * Accepts the few shapes Postgres / clients send us:
+ *   "09:30:00+05", "09:30:00+05:00", "09:30:00.000+05", "09:30"
+ */
+function splitTimeStr(s: string): { h: number; m: number; sec: number } | null {
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?/.exec(s);
+  if (!m) return null;
+  return {
+    h: Number(m[1]),
+    m: Number(m[2]),
+    sec: Number(m[3] ?? "0"),
+  };
+}
+
+/** "09:30:00+05" → "9:30 AM" */
+export function formatTimeShort(t: string | null | undefined): string {
+  if (!t) return "—";
+  const parts = splitTimeStr(t);
+  if (!parts) return t;
+  const { h, m } = parts;
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+/** "09:30:00+05" → "09:30" — value usable in <input type="time">. */
+export function toHHMM(t: string | null | undefined): string {
+  if (!t) return "";
+  const parts = splitTimeStr(t);
+  if (!parts) return "";
+  return `${String(parts.h).padStart(2, "0")}:${String(parts.m).padStart(2, "0")}`;
+}
+
+/** "09:30" or "9:30" → "09:30:00+05" (Pakistan offset). */
+export function fromHHMM(s: string): string | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}:00${PK_OFFSET}`;
+}
+
+/**
+ * Format a numeric hour count for display.
+ *   8.7 → "8.7"
+ *   4.0 → "4"
+ *   null/undefined → "—"
+ */
+export function formatHours(h: number | null | undefined, withUnit = false): string {
+  if (h == null) return "—";
+  const rounded = Math.round(h * 10) / 10;
+  const trimmed = Number.isInteger(rounded) ? `${rounded}` : `${rounded.toFixed(1)}`;
+  return withUnit ? `${trimmed} hrs` : trimmed;
+}
+
+/**
+ * Live total-hours preview for the Day Detail edit form.
+ * Returns the (checkout - checkin) duration in hours, or null when either
+ * end is missing or the range is impossible / longer than 16 hours
+ * (mirrors the SQL trigger's clamp).
+ */
+export function computeHours(
+  checkin: string | null,
+  checkout: string | null,
+): number | null {
+  if (!checkin || !checkout) return null;
+  const a = splitTimeStr(checkin);
+  const b = splitTimeStr(checkout);
+  if (!a || !b) return null;
+  const aMin = a.h * 60 + a.m;
+  const bMin = b.h * 60 + b.m;
+  const diff = (bMin - aMin) / 60;
+  if (diff < 0 || diff > 16) return null;
+  return diff;
+}
+
+// ---------------------------------------------------------------------
+// Slack message time extraction
+// ---------------------------------------------------------------------
+
+/**
+ * Pull a time out of free-form Slack text.
+ *
+ * Handles:  "9am" / "9 am" / "9:30am" / "9:30" / "09:30" / "10:30pm" /
+ *           "noon" / "midnight" / "0930"
+ *
+ * Returns a TIMETZ string ("HH:MM:00+05") or null when nothing parses.
+ *
+ * Ambiguity rule (per PHASE_7_DESIGN.md §7C): when the message gives an
+ * hour < 8 with NO am/pm marker, assume PM — typo guard for "checkout 6"
+ * meaning 6pm.
+ */
+export function extractTime(text: string): string | null {
+  const t = text.toLowerCase();
+
+  if (/\bnoon\b/.test(t)) return "12:00:00" + PK_OFFSET;
+  if (/\bmidnight\b/.test(t)) return "00:00:00" + PK_OFFSET;
+
+  // Match "HH(:MM)? (am|pm)?" — capture three groups: hour, minute (opt),
+  // ampm (opt). Allow space between number and meridiem.
+  const m = /\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/.exec(t);
+  if (!m) return null;
+
+  let h = Number(m[1]);
+  const min = m[2] ? Number(m[2]) : 0;
+  const ampm = m[3];
+
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  if (h > 12 && ampm) return null; // "14pm" is bogus
+
+  if (ampm === "pm" && h < 12) h += 12;
+  else if (ampm === "am" && h === 12) h = 0;
+  else if (!ampm && h < 8) h += 12; // typo-guard
+
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}:00${PK_OFFSET}`;
+}

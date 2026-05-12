@@ -61,6 +61,8 @@ export async function recordParse(input: ParseLogInput): Promise<{
 /**
  * Upsert an attendance_logs row for (employee_id, date) and return the row id.
  * Source defaults to 'slack' for events; pass 'slash_command' for the modal flow.
+ * Hours columns (checkin_time, checkout_time) are optional and only sent when
+ * the caller wants to set them — the SQL trigger recomputes total_hours.
  */
 export async function upsertAttendanceLog(opts: {
   employeeId: string;
@@ -72,26 +74,29 @@ export async function upsertAttendanceLog(opts: {
   status?: "auto_logged" | "confirmed" | "approved";
   slackMessageTs?: string | null;
   createdBy?: string | null;
+  checkinTime?: string | null;
+  checkoutTime?: string | null;
 }): Promise<string | null> {
   const admin = createAdminClient();
   const date = opts.date ?? todayISO();
 
+  const row: Record<string, unknown> = {
+    employee_id: opts.employeeId,
+    date,
+    type: opts.type,
+    half: opts.half ?? "full",
+    reason: opts.reason ?? null,
+    status: opts.status ?? "auto_logged",
+    source: opts.source ?? "slack",
+    slack_message_ts: opts.slackMessageTs ?? null,
+    created_by: opts.createdBy ?? opts.employeeId,
+  };
+  if (opts.checkinTime !== undefined) row.checkin_time = opts.checkinTime;
+  if (opts.checkoutTime !== undefined) row.checkout_time = opts.checkoutTime;
+
   const { data, error } = await admin
     .from("attendance_logs")
-    .upsert(
-      {
-        employee_id: opts.employeeId,
-        date,
-        type: opts.type,
-        half: opts.half ?? "full",
-        reason: opts.reason ?? null,
-        status: opts.status ?? "auto_logged",
-        source: opts.source ?? "slack",
-        slack_message_ts: opts.slackMessageTs ?? null,
-        created_by: opts.createdBy ?? opts.employeeId,
-      },
-      { onConflict: "employee_id,date" },
-    )
+    .upsert(row, { onConflict: "employee_id,date" })
     .select("id")
     .single();
 

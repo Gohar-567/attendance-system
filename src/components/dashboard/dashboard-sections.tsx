@@ -1,5 +1,6 @@
 import { TodayBanner } from "@/components/dashboard/today-banner";
 import { BalanceCards } from "@/components/dashboard/balance-cards";
+import { HoursThisWeekCard } from "@/components/dashboard/hours-this-week";
 import { MonthCalendar } from "@/components/dashboard/month-calendar";
 import { QuickActions } from "@/components/dashboard/quick-actions";
 import { EmptyState } from "@/components/dashboard/empty-state";
@@ -44,6 +45,10 @@ export function DashboardSections({
     isFirstTime,
   } = data;
 
+  // Only the row's owner gets the one-click check-in/out buttons.
+  // HR viewing someone else uses the edit form instead.
+  const isOwner = viewerId === employee.id;
+
   if (isFirstTime) {
     return (
       <>
@@ -64,9 +69,12 @@ export function DashboardSections({
         log={todayLog}
         isWeekend={isWeekend(todayISO)}
         holidayName={todayHoliday}
+        showCheckinControls={isOwner}
       />
 
       <BalanceCards balance={balance} wfhThisMonth={wfhThisMonth} />
+
+      <HoursThisWeekCard monthLogs={monthLogs} todayISO={todayISO} />
 
       <Card>
         <CardContent className="space-y-4 p-4 sm:p-6">

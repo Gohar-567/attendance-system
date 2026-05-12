@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
       .not("slack_user_id", "is", null),
     admin
       .from("attendance_logs")
-      .select("employee_id, date, type, half")
+      .select("employee_id, date, type, half, total_hours")
       .gte("date", weekStart)
       .lte("date", weekEnd),
     admin
@@ -72,6 +72,7 @@ export async function GET(req: NextRequest) {
     date: string;
     type: string;
     half: string;
+    total_hours: number | null;
   };
   type Bal = {
     employee_id: string;
@@ -110,6 +111,8 @@ export async function GET(req: NextRequest) {
     let daysAtOffice = 0;
     let daysWfh = 0;
     let halfDays = 0;
+    let weeklyHours = 0;
+    let hoursDays = 0;
 
     for (const iso of days) {
       const log = myLogs.get(iso) ?? null;
@@ -119,6 +122,10 @@ export async function GET(req: NextRequest) {
         if (log.type === "present") daysAtOffice++;
         else if (log.type === "wfh" || log.type === "ewd") daysWfh++;
         else if (log.type === "half_leave") halfDays++;
+        if (log.total_hours != null) {
+          weeklyHours += Number(log.total_hours);
+          hoursDays++;
+        }
       }
     }
 
@@ -135,6 +142,8 @@ export async function GET(req: NextRequest) {
       casualLeft: bal ? bal.casual_allowance - bal.casual_used : 0,
       sickLeft: bal ? bal.sick_allowance - bal.sick_used : 0,
       annualLeft: bal ? bal.annual_allowance - bal.annual_used : 0,
+      weeklyHours,
+      hoursDays,
       appUrl,
     });
 

@@ -1,51 +1,78 @@
 import type { AttendanceHalf, AttendanceType } from "@/lib/attendance";
+import { extractTime } from "@/lib/time";
 
 /** Confidence at or above which we auto-log an attendance row. */
 export const AUTO_LOG_THRESHOLD = 0.85;
 
+/**
+ * What the events handler should do with the parse result.
+ *
+ *   - "checkin"   → set checkin_time (from `time` or NOW) on today's row
+ *   - "checkout"  → set checkout_time on today's row; refuse if there's
+ *                   no row yet
+ *   - "info_only" → set type/half on today's row; don't touch times
+ *
+ * For a "checkin" outcome `type` may also be set when the message
+ * implied a non-default type (e.g. "wfh 9:30am" → type=wfh + checkin).
+ */
+export type ParseIntent = "checkin" | "checkout" | "info_only";
+
 export type ParseOutcome =
   | {
       kind: "match";
-      type: AttendanceType;
-      half: AttendanceHalf;
+      intent: ParseIntent;
+      type?: AttendanceType;
+      half?: AttendanceHalf;
+      /** TIMETZ "HH:MM:SS+05" if the message contained a time. */
+      time?: string;
       confidence: number;
-      /** Stable identifier for the matched rule, surfaced in /admin/parser-log. */
       name: string;
       matched: string;
     }
-  | {
-      /** Message was a deliberate non-event (checkout, signing off). Caller
-       *  should drop it on the floor — no log, no DM, no reaction. */
-      kind: "ignore";
-      name: string;
-    }
   | { kind: "none" };
 
+// ---- Pattern catalogues --------------------------------------------
+
 /**
- * Patterns the bot deliberately ignores. Listed before the "match" patterns
- * because some — like "checking out" — would otherwise hit the broader
- * present/checkin family.
+ * Explicit checkout signals — message means "I'm leaving for the day."
+ * These run before type/checkin patterns so "checking out for the day"
+ * isn't mistaken for "checking in".
  */
-const IGNORE_PATTERNS: { name: string; re: RegExp }[] = [
-  { name: "ignore_checking_out", re: /\bchecking out\b/i },
-  { name: "ignore_check_out", re: /\bcheck[\s-]?out\b/i },
-  { name: "ignore_signing_off", re: /\bsign(ing)?[\s-]?off\b/i },
+const CHECKOUT_PATTERNS: { name: string; re: RegExp }[] = [
+  { name: "checkout_done_for_day", re: /\bdone for (?:the )?day\b/i },
+  { name: "checkout_signing_off", re: /\bsign(?:ing)?[\s-]?off\b/i },
+  { name: "checkout_checking_out", re: /\bchecking out\b/i },
+  { name: "checkout_check_out", re: /\bcheck[\s-]?out\b/i },
+  { name: "checkout_clocking_out", re: /\bclock(?:ing)?[\s-]?out\b/i },
+  { name: "checkout_out_at", re: /\bout at\s+\d/i },
 ];
 
 /**
- * Pattern table from BUILD_MANIFEST.md §6 plus the checkin/present family.
- * Order matters — first match wins. More-specific phrases are listed before
- * more-generic ones, and ambiguous single-word forms sit at the end with a
- * sub-threshold confidence so the bot DMs the user to clarify via /attendance.
+ * Explicit check-in signals. They only need a checkin keyword to fire —
+ * any time appearing in the same message is treated as checkin_time.
  */
-const PATTERNS: {
+const CHECKIN_PATTERNS: { name: string; re: RegExp }[] = [
+  { name: "checkin_clocking_in", re: /\bclock(?:ing)?[\s-]?in\b/i },
+  { name: "checkin_started_at", re: /\bstarted at\s+\d/i },
+  { name: "checkin_in_at_time", re: /\bin at\s+\d/i },
+  { name: "checkin_checking_in", re: /\bchecking in\b/i },
+  { name: "checkin_check_in", re: /\bcheck[\s-]?in\b/i },
+];
+
+/**
+ * Type patterns from manifest §6 plus the present family from Phase 7's
+ * earlier addition. In priority order — more-specific first. Returning
+ * a type doesn't itself imply a checkin; the caller decides based on
+ * whether a time / checkin-keyword is also present.
+ */
+const TYPE_PATTERNS: {
   name: string;
   re: RegExp;
   type: AttendanceType;
   half: AttendanceHalf;
   confidence: number;
 }[] = [
-  // ------- Half day (specific halves before the generic) -------
+  // Half-leave (specific halves before generic).
   {
     name: "half_first_morning_off",
     re: /\b(morning off|first half off|first half leave)\b/i,
@@ -67,8 +94,7 @@ const PATTERNS: {
     half: "full",
     confidence: 0.85,
   },
-
-  // ------- WFH / EWD -------
+  // WFH / EWD.
   {
     name: "wfh_basic",
     re: /\b(wfh|working from home)\b/i,
@@ -83,8 +109,7 @@ const PATTERNS: {
     half: "full",
     confidence: 0.9,
   },
-
-  // ------- Sick (full day) -------
+  // Sick (full day).
   {
     name: "sick_basic",
     re: /\b(sick today|not feeling well|feeling unwell|food poisoning)\b/i,
@@ -92,8 +117,7 @@ const PATTERNS: {
     half: "full",
     confidence: 0.85,
   },
-
-  // ------- Full leave (sub-threshold; will DM for /attendance) -------
+  // Full leave (sub-threshold; will DM for /attendance).
   {
     name: "full_leave_basic",
     re: /\b(on leave|taking leave|casual leave|annual leave)\b/i,
@@ -101,42 +125,7 @@ const PATTERNS: {
     half: "full",
     confidence: 0.8,
   },
-
-  // ------- Present / checkin family -------
-  // "checkin 9am" / "check-in at 9:30" — checkin word + a digit anywhere
-  // after it. Time itself is not stored (we track days, not hours).
-  {
-    name: "present_checkin_with_time",
-    re: /\bcheck[\s-]?in\b[^\n]*\d/i,
-    type: "present",
-    half: "full",
-    confidence: 0.92,
-  },
-  // "in at 9:30" / "in at 10am"
-  {
-    name: "present_in_at_time",
-    re: /\bin at\s+\d/i,
-    type: "present",
-    half: "full",
-    confidence: 0.92,
-  },
-  // "checkin", "check in", "check-in"
-  {
-    name: "present_checkin",
-    re: /\bcheck[\s-]?in\b/i,
-    type: "present",
-    half: "full",
-    confidence: 0.92,
-  },
-  // "checking in"
-  {
-    name: "present_checking_in",
-    re: /\bchecking in\b/i,
-    type: "present",
-    half: "full",
-    confidence: 0.92,
-  },
-  // "at office", "in office"
+  // Present family — anything implying physical attendance.
   {
     name: "present_at_office",
     re: /\b(at|in) office\b/i,
@@ -151,10 +140,7 @@ const PATTERNS: {
     half: "full",
     confidence: 0.9,
   },
-
-  // ------- Ambiguous single-word forms (sub-threshold → bot DMs) -------
-  // Anchored to the trimmed message so they only fire when the user wrote
-  // exactly the word (with optional trailing punctuation/emoji).
+  // Ambiguous single-word "in" / "here" — sub-threshold on purpose.
   {
     name: "present_in_alone",
     re: /^in[\s.!?]*$/i,
@@ -171,27 +157,70 @@ const PATTERNS: {
   },
 ];
 
+function firstMatch<T extends { re: RegExp }>(
+  patterns: T[],
+  text: string,
+): { entry: T; matched: string } | null {
+  for (const p of patterns) {
+    const m = p.re.exec(text);
+    if (m) return { entry: p, matched: m[0] };
+  }
+  return null;
+}
+
 export function parseMessage(text: string): ParseOutcome {
   const t = text.trim();
+  const time = extractTime(t);
 
-  // Ignore patterns short-circuit. We test these first so a message like
-  // "checking out for the day" never falls through to the present family.
-  for (const ig of IGNORE_PATTERNS) {
-    if (ig.re.test(t)) return { kind: "ignore", name: ig.name };
+  // 1. Checkout signals — these win over checkin patterns even if the
+  //    message also contains "in" somewhere (e.g. "checkin morning,
+  //    checking out 6pm" — uncommon but defensible).
+  const checkout = firstMatch(CHECKOUT_PATTERNS, t);
+  if (checkout) {
+    return {
+      kind: "match",
+      intent: "checkout",
+      time: time ?? undefined,
+      confidence: 0.95,
+      name: checkout.entry.name,
+      matched: checkout.matched,
+    };
   }
 
-  for (const p of PATTERNS) {
-    const m = p.re.exec(t);
-    if (m) {
-      return {
-        kind: "match",
-        type: p.type,
-        half: p.half,
-        confidence: p.confidence,
-        name: p.name,
-        matched: m[0],
-      };
-    }
+  // 2. Type detection (informs intent below).
+  const typeHit = firstMatch(TYPE_PATTERNS, t);
+
+  // 3. Explicit checkin keyword.
+  const checkin = firstMatch(CHECKIN_PATTERNS, t);
+
+  if (checkin) {
+    return {
+      kind: "match",
+      intent: "checkin",
+      type: typeHit?.entry.type ?? "present",
+      half: typeHit?.entry.half ?? "full",
+      time: time ?? undefined,
+      confidence: Math.max(0.92, typeHit?.entry.confidence ?? 0),
+      name: checkin.entry.name,
+      matched: checkin.matched,
+    };
   }
+
+  if (typeHit) {
+    // No explicit checkin word — but if a time appears, treat it as a
+    // checkin signal too ("WFH 9:30am" → set checkin_time).
+    const intent: ParseIntent = time ? "checkin" : "info_only";
+    return {
+      kind: "match",
+      intent,
+      type: typeHit.entry.type,
+      half: typeHit.entry.half,
+      time: intent === "checkin" ? time ?? undefined : undefined,
+      confidence: typeHit.entry.confidence,
+      name: typeHit.entry.name,
+      matched: typeHit.matched,
+    };
+  }
+
   return { kind: "none" };
 }

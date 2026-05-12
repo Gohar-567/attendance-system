@@ -75,6 +75,10 @@ export interface DigestData {
   casualLeft: number;
   sickLeft: number;
   annualLeft: number;
+  /** Sum of total_hours across the week. */
+  weeklyHours: number;
+  /** Days the user has total_hours data for. */
+  hoursDays: number;
   appUrl: string;
 }
 
@@ -127,6 +131,17 @@ export function buildDigestBlocks(d: DigestData) {
         },
       ],
     },
+    ...(d.hoursDays > 0
+      ? [
+          {
+            type: "section",
+            text: {
+              type: "mrkdwn",
+              text: hoursSentence(d.weeklyHours, d.hoursDays),
+            },
+          },
+        ]
+      : []),
     {
       type: "context",
       elements: [
@@ -137,6 +152,14 @@ export function buildDigestBlocks(d: DigestData) {
       ],
     },
   ];
+}
+
+function hoursSentence(total: number, days: number): string {
+  const totalStr = (Math.round(total * 10) / 10).toFixed(1);
+  const avg = (Math.round((total / days) * 10) / 10).toFixed(1);
+  return `:clock4: You worked *${totalStr} hours* this week (${days} day${
+    days === 1 ? "" : "s"
+  }, avg *${avg} hrs/day*).`;
 }
 
 function escapeMrkdwn(s: string): string {

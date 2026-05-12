@@ -12,6 +12,7 @@ import {
   type AttendanceType,
 } from "@/lib/attendance";
 import { longDate } from "@/lib/date";
+import { formatHours, formatTimeShort } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 const FILTER_TYPES: { key: AttendanceType | "all"; label: string }[] = [
@@ -33,15 +34,23 @@ interface HistoryTableProps {
 export function HistoryTable({ logs, totals }: HistoryTableProps) {
   const [activeType, setActiveType] = useState<AttendanceType | "all">("all");
   const [query, setQuery] = useState("");
+  const [shortDaysOnly, setShortDaysOnly] = useState(false);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return logs.filter((l) => {
       if (activeType !== "all" && l.type !== activeType) return false;
       if (q && !(l.reason ?? "").toLowerCase().includes(q)) return false;
+      if (shortDaysOnly) {
+        // "Hours < 6": only show worked days where total_hours is set
+        // AND < 6. Days without total_hours (leave/missing checkin-out)
+        // aren't "short days" — they're nothing-worked.
+        if (l.total_hours == null) return false;
+        if (Number(l.total_hours) >= 6) return false;
+      }
       return true;
     });
-  }, [logs, activeType, query]);
+  }, [logs, activeType, query, shortDaysOnly]);
 
   function exportCsv() {
     const headers = [
@@ -51,6 +60,9 @@ export function HistoryTable({ logs, totals }: HistoryTableProps) {
       "reason",
       "status",
       "source",
+      "checkin_time",
+      "checkout_time",
+      "total_hours",
       "created_at",
     ];
     const rows = filtered.map((l) => [
@@ -60,6 +72,9 @@ export function HistoryTable({ logs, totals }: HistoryTableProps) {
       (l.reason ?? "").replace(/"/g, '""'),
       l.status,
       l.source,
+      l.checkin_time ?? "",
+      l.checkout_time ?? "",
+      l.total_hours ?? "",
       l.created_at,
     ]);
     const csv = [headers, ...rows]
@@ -105,6 +120,19 @@ export function HistoryTable({ logs, totals }: HistoryTableProps) {
               {f.label}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setShortDaysOnly((v) => !v)}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              shortDaysOnly
+                ? "border-amber-500 bg-amber-500/15 text-amber-900 dark:text-amber-200"
+                : "border-border bg-background text-foreground hover:bg-muted",
+            )}
+            title="Show only days with logged hours below 6 (for self-discovery, not flagging)"
+          >
+            Hours &lt; 6
+          </button>
         </div>
 
         <div className="flex items-center gap-2">
@@ -159,6 +187,19 @@ export function HistoryTable({ logs, totals }: HistoryTableProps) {
                   {l.status.replace("_", " ")}
                 </Badge>
               </div>
+              {(l.checkin_time || l.checkout_time || l.total_hours != null) && (
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground tabular-nums">
+                  {l.checkin_time && (
+                    <span>In {formatTimeShort(l.checkin_time)}</span>
+                  )}
+                  {l.checkout_time && (
+                    <span>Out {formatTimeShort(l.checkout_time)}</span>
+                  )}
+                  {l.total_hours != null && (
+                    <span>{formatHours(l.total_hours, true)}</span>
+                  )}
+                </div>
+              )}
               {l.reason && (
                 <div className="mt-2 text-sm text-muted-foreground">
                   {l.reason}
@@ -175,14 +216,23 @@ export function HistoryTable({ logs, totals }: HistoryTableProps) {
             <tr>
               <th className="px-3 py-2 font-medium">Date</th>
               <th className="px-3 py-2 font-medium">Type</th>
-              <th className="hidden px-3 py-2 font-medium sm:table-cell">
+              <th className="hidden px-3 py-2 font-medium md:table-cell">
                 Half
               </th>
-              <th className="px-3 py-2 font-medium">Reason</th>
-              <th className="hidden px-3 py-2 font-medium sm:table-cell">
-                Source
+              <th className="hidden px-3 py-2 font-medium md:table-cell">
+                Check-in
               </th>
               <th className="hidden px-3 py-2 font-medium md:table-cell">
+                Check-out
+              </th>
+              <th className="hidden px-3 py-2 font-medium sm:table-cell">
+                Hours
+              </th>
+              <th className="px-3 py-2 font-medium">Reason</th>
+              <th className="hidden px-3 py-2 font-medium lg:table-cell">
+                Source
+              </th>
+              <th className="hidden px-3 py-2 font-medium lg:table-cell">
                 Status
               </th>
             </tr>
@@ -191,7 +241,7 @@ export function HistoryTable({ logs, totals }: HistoryTableProps) {
             {filtered.length === 0 ? (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={9}
                   className="px-3 py-12 text-center text-sm text-muted-foreground"
                 >
                   No entries match these filters.
@@ -208,16 +258,25 @@ export function HistoryTable({ logs, totals }: HistoryTableProps) {
                       {TYPE_LABEL[l.type]}
                     </Badge>
                   </td>
-                  <td className="hidden px-3 py-2 capitalize sm:table-cell">
+                  <td className="hidden px-3 py-2 capitalize md:table-cell">
                     {l.half === "full" ? "—" : l.half.replace("_", " ")}
+                  </td>
+                  <td className="hidden px-3 py-2 tabular-nums md:table-cell">
+                    {l.checkin_time ? formatTimeShort(l.checkin_time) : "—"}
+                  </td>
+                  <td className="hidden px-3 py-2 tabular-nums md:table-cell">
+                    {l.checkout_time ? formatTimeShort(l.checkout_time) : "—"}
+                  </td>
+                  <td className="hidden px-3 py-2 tabular-nums sm:table-cell">
+                    {formatHours(l.total_hours)}
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
                     {l.reason ?? "—"}
                   </td>
-                  <td className="hidden px-3 py-2 capitalize sm:table-cell">
+                  <td className="hidden px-3 py-2 capitalize lg:table-cell">
                     {l.source.replace("_", " ")}
                   </td>
-                  <td className="hidden px-3 py-2 md:table-cell">
+                  <td className="hidden px-3 py-2 lg:table-cell">
                     <Badge
                       variant={
                         l.status === "rejected" ? "destructive" : "secondary"

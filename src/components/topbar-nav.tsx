@@ -86,6 +86,7 @@ function buildMenu({
       items: [
         { href: "/admin", label: "Admin dashboard" },
         { href: "/admin/report", label: "Reports" },
+        { href: "/admin/hours", label: "Hours overview" },
         {
           href: "/admin/employees",
           label: "Manage employees",
