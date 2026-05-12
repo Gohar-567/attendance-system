@@ -1,14 +1,20 @@
-import { CalendarCheck, CalendarX, Sparkles } from "lucide-react";
+import { CalendarCheck, CalendarX, Clock, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { CheckInOutControls } from "@/components/dashboard/check-in-out-controls";
 import { TYPE_LABEL, type AttendanceLog } from "@/lib/attendance";
 import { longDate } from "@/lib/date";
+import { formatHours, formatTimeShort } from "@/lib/time";
 
 interface TodayBannerProps {
   todayISO: string;
   log: AttendanceLog | null;
   isWeekend: boolean;
   holidayName?: string | null;
+  /** Hide the check-in / check-out buttons when HR is viewing another
+   *  employee's calendar (we don't want HR to "check in" on someone
+   *  else's behalf with a single click — the edit form is the path). */
+  showCheckinControls?: boolean;
 }
 
 export function TodayBanner({
@@ -16,6 +22,7 @@ export function TodayBanner({
   log,
   isWeekend,
   holidayName,
+  showCheckinControls = true,
 }: TodayBannerProps) {
   const dateLabel = longDate(todayISO);
 
@@ -35,16 +42,77 @@ export function TodayBanner({
     );
   }
 
+  // No row at all — invite the user to check in.
   if (!log) {
     return (
-      <Banner tone="warn" date={dateLabel} icon={CalendarX}>
-        Today&apos;s attendance isn&apos;t marked yet.
+      <Banner
+        tone="warn"
+        date={dateLabel}
+        icon={CalendarX}
+        actions={
+          showCheckinControls ? (
+            <CheckInOutControls state="needs_checkin" />
+          ) : null
+        }
+      >
+        You haven&apos;t checked in today.
       </Banner>
     );
   }
 
+  // Leave / sick / holiday — show type label only, no check-in UI.
+  const isLeaveType =
+    log.type === "full_leave" ||
+    log.type === "sick" ||
+    log.type === "holiday";
+
+  if (isLeaveType) {
+    return (
+      <Banner tone="primary" date={dateLabel} icon={CalendarCheck}>
+        <span className="font-semibold">{TYPE_LABEL[log.type]}</span>
+        {log.half !== "full" && (
+          <span className="ml-1 text-blue-100">
+            · {log.half === "first_half" ? "first half" : "second half"}
+          </span>
+        )}
+        {log.status === "auto_logged" && (
+          <Badge
+            variant="secondary"
+            className="ml-3 border-white/20 bg-white/15 text-blue-50"
+          >
+            <Sparkles className="mr-1 h-3 w-3" />
+            Auto-logged
+          </Badge>
+        )}
+        {log.reason && (
+          <div className="mt-1 text-sm font-normal text-blue-100">
+            {log.reason}
+          </div>
+        )}
+      </Banner>
+    );
+  }
+
+  // Present / WFH / EWD / Half — show check-in/check-out timeline.
+  const hasCheckin = !!log.checkin_time;
+  const hasCheckout = !!log.checkout_time;
+  const state: "needs_checkin" | "needs_checkout" | "done" = !hasCheckin
+    ? "needs_checkin"
+    : !hasCheckout
+      ? "needs_checkout"
+      : "done";
+
   return (
-    <Banner tone="primary" date={dateLabel} icon={CalendarCheck}>
+    <Banner
+      tone="primary"
+      date={dateLabel}
+      icon={CalendarCheck}
+      actions={
+        showCheckinControls && log.type !== "half_leave" ? (
+          <CheckInOutControls state={state} />
+        ) : null
+      }
+    >
       <span className="font-semibold">{TYPE_LABEL[log.type]}</span>
       {log.half !== "full" && (
         <span className="ml-1 text-blue-100">
@@ -60,7 +128,29 @@ export function TodayBanner({
           Auto-logged
         </Badge>
       )}
-      {log.reason && (
+      {log.type !== "half_leave" && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-normal text-blue-50/95">
+          {hasCheckin ? (
+            <span className="inline-flex items-center gap-1">
+              <Clock className="h-3.5 w-3.5 opacity-80" />
+              Checked in <strong>{formatTimeShort(log.checkin_time)}</strong>
+            </span>
+          ) : (
+            <span className="opacity-90">Not checked in yet</span>
+          )}
+          {hasCheckout && (
+            <span>
+              · Checked out <strong>{formatTimeShort(log.checkout_time)}</strong>
+            </span>
+          )}
+          {log.total_hours != null && (
+            <span>
+              · <strong>{formatHours(log.total_hours, true)}</strong>
+            </span>
+          )}
+        </div>
+      )}
+      {log.reason && log.type === "half_leave" && (
         <div className="mt-1 text-sm font-normal text-blue-100">
           {log.reason}
         </div>
@@ -73,11 +163,13 @@ function Banner({
   tone,
   date,
   icon: Icon,
+  actions,
   children,
 }: {
   tone: "primary" | "muted" | "warn";
   date: string;
   icon?: React.ComponentType<{ className?: string }>;
+  actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const cls =
@@ -97,6 +189,7 @@ function Banner({
           </div>
           <div className="mt-1 text-base sm:text-lg">{children}</div>
         </div>
+        {actions && <div className="ml-2 shrink-0">{actions}</div>}
       </div>
     </section>
   );

@@ -60,6 +60,7 @@ export async function GET(req: NextRequest) {
         .from("attendance_logs")
         .select(
           `date, type, half, reason, source, status,
+           checkin_time, checkout_time, total_hours,
            employee:employees!employee_id ( id, full_name, team:teams!team_id ( id, name ) )`,
         )
         .in("employee_id", employeeIds)
@@ -75,6 +76,9 @@ export async function GET(req: NextRequest) {
     reason: string | null;
     source: string;
     status: string;
+    checkin_time: string | null;
+    checkout_time: string | null;
+    total_hours: number | null;
     employee: {
       id: string;
       full_name: string;
@@ -98,6 +102,8 @@ export async function GET(req: NextRequest) {
     { header: "Casual", key: "casual", width: 10 },
     { header: "Sick", key: "sick", width: 10 },
     { header: "Annual", key: "annual", width: 10 },
+    { header: "Avg hrs/day", key: "avg_hours", width: 14 },
+    { header: "Total hours", key: "total_hours", width: 14 },
   ];
   summarySheet.getRow(1).font = { bold: true };
   summarySheet.views = [{ state: "frozen", ySplit: 1 }];
@@ -112,6 +118,12 @@ export async function GET(req: NextRequest) {
       casual: r.casual,
       sick: r.sick,
       annual: r.annual,
+      avg_hours:
+        r.avg_hours_per_day == null
+          ? ""
+          : Math.round(r.avg_hours_per_day * 10) / 10,
+      total_hours:
+        r.total_hours > 0 ? Math.round(r.total_hours * 10) / 10 : "",
     });
   }
 
@@ -124,13 +136,37 @@ export async function GET(req: NextRequest) {
         casual: acc.casual + r.casual,
         sick: acc.sick + r.sick,
         annual: acc.annual + r.annual,
+        total_hours: acc.total_hours + r.total_hours,
+        hours_days: acc.hours_days + r.hours_days,
       }),
-      { present: 0, wfh: 0, half: 0, casual: 0, sick: 0, annual: 0 },
+      {
+        present: 0,
+        wfh: 0,
+        half: 0,
+        casual: 0,
+        sick: 0,
+        annual: 0,
+        total_hours: 0,
+        hours_days: 0,
+      },
     );
     const totalRow = summarySheet.addRow({
       employee: "Total",
       team: `${summary.length} employees`,
-      ...totals,
+      present: totals.present,
+      wfh: totals.wfh,
+      half: totals.half,
+      casual: totals.casual,
+      sick: totals.sick,
+      annual: totals.annual,
+      avg_hours:
+        totals.hours_days > 0
+          ? Math.round((totals.total_hours / totals.hours_days) * 10) / 10
+          : "",
+      total_hours:
+        totals.total_hours > 0
+          ? Math.round(totals.total_hours * 10) / 10
+          : "",
     });
     totalRow.font = { bold: true };
   }
@@ -143,6 +179,9 @@ export async function GET(req: NextRequest) {
     { header: "Team", key: "team", width: 18 },
     { header: "Type", key: "type", width: 14 },
     { header: "Half", key: "half", width: 12 },
+    { header: "Check-in", key: "checkin", width: 12 },
+    { header: "Check-out", key: "checkout", width: 12 },
+    { header: "Hours", key: "hours", width: 10 },
     { header: "Reason", key: "reason", width: 40 },
     { header: "Source", key: "source", width: 14 },
     { header: "Status", key: "status", width: 14 },
@@ -157,6 +196,12 @@ export async function GET(req: NextRequest) {
       team: d.employee?.team?.name ?? "",
       type: d.type,
       half: d.half,
+      checkin: d.checkin_time ?? "",
+      checkout: d.checkout_time ?? "",
+      hours:
+        d.total_hours == null
+          ? ""
+          : Math.round(Number(d.total_hours) * 10) / 10,
       reason: d.reason ?? "",
       source: d.source,
       status: d.status,

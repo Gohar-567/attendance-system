@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { todayISO, dowOf, isWeekend } from "@/lib/date";
+import { currentKarachiTime } from "@/lib/time";
 import { EDITABLE_TYPES, type EditableType } from "@/lib/attendance";
 import type {
   ActionResult,
@@ -99,7 +100,7 @@ export async function editAttendanceAction(
   const { data: before } = await admin
     .from("attendance_logs")
     .select(
-      "id, employee_id, date, type, half, reason, status, source, slack_message_ts, created_by, created_at, updated_at",
+      "id, employee_id, date, type, half, reason, status, source, slack_message_ts, created_by, created_at, updated_at, checkin_time, checkout_time, total_hours",
     )
     .eq("id", input.logId)
     .maybeSingle();
@@ -122,14 +123,18 @@ export async function editAttendanceAction(
     return { ok: false, error: "Half only applies to half-leave entries" };
   }
 
-  const patch = {
+  const patch: Record<string, unknown> = {
     type: input.type,
     half: input.half,
     reason: input.reason?.trim() || null,
     // Web-driven edits become "confirmed" (no longer auto-logged).
-    status: "confirmed" as const,
+    status: "confirmed",
     updated_at: new Date().toISOString(),
   };
+  // Hours: only forward when the caller wants to touch them. The SQL
+  // trigger recomputes total_hours from these on UPDATE.
+  if (input.checkinTime !== undefined) patch.checkin_time = input.checkinTime;
+  if (input.checkoutTime !== undefined) patch.checkout_time = input.checkoutTime;
 
   const { error: updateErr } = await admin
     .from("attendance_logs")
@@ -152,6 +157,8 @@ export async function editAttendanceAction(
         half: before.half,
         reason: before.reason,
         status: before.status,
+        checkin_time: before.checkin_time ?? null,
+        checkout_time: before.checkout_time ?? null,
       },
       after: patch,
       ...(hrOnOthers
@@ -266,18 +273,22 @@ export async function addBackdatedAttendanceAction(
     };
   }
 
+  const insertRow: Record<string, unknown> = {
+    employee_id: employeeId,
+    date: input.date,
+    type: input.type,
+    half: input.half,
+    reason: input.reason?.trim() || null,
+    status: "confirmed",
+    source: "web_backdated",
+    created_by: auth.userId,
+  };
+  if (input.checkinTime !== undefined) insertRow.checkin_time = input.checkinTime;
+  if (input.checkoutTime !== undefined) insertRow.checkout_time = input.checkoutTime;
+
   const { data: inserted, error } = await admin
     .from("attendance_logs")
-    .insert({
-      employee_id: employeeId,
-      date: input.date,
-      type: input.type,
-      half: input.half,
-      reason: input.reason?.trim() || null,
-      status: "confirmed",
-      source: "web_backdated",
-      created_by: auth.userId,
-    })
+    .insert(insertRow)
     .select("id")
     .single();
   if (error || !inserted) {
@@ -306,5 +317,109 @@ export async function addBackdatedAttendanceAction(
   revalidatePath("/");
   revalidatePath("/history");
   revalidatePath(`/admin/employees/${employeeId}`);
+  return { ok: true };
+}
+
+/**
+ * "Check in now" button on the Today banner. Upserts today's row with
+ * checkin_time = current Karachi time. If a row already exists with a
+ * checkin_time set, no-op and return a clear error message — the user
+ * picked the wrong button. type defaults to 'present' but is preserved
+ * if a non-leave row already exists (e.g. user toggled WFH earlier).
+ */
+export async function checkInNowAction(): Promise<ActionResult> {
+  const auth = await getActor();
+  if (!auth.ok) return auth;
+
+  const admin = createAdminClient();
+  const date = todayISO();
+
+  const { data: existing } = await admin
+    .from("attendance_logs")
+    .select("id, type, checkin_time")
+    .eq("employee_id", auth.userId)
+    .eq("date", date)
+    .maybeSingle<{ id: string; type: string; checkin_time: string | null }>();
+
+  if (existing?.checkin_time) {
+    return {
+      ok: false,
+      error: `Already checked in at ${existing.checkin_time.slice(0, 5)}`,
+    };
+  }
+
+  const now = currentKarachiTime();
+  // Preserve a non-default type if the row already exists (e.g. WFH).
+  const type =
+    existing && !["full_leave", "sick", "holiday"].includes(existing.type)
+      ? (existing.type as EditableType)
+      : "present";
+
+  const row: Record<string, unknown> = {
+    employee_id: auth.userId,
+    date,
+    type,
+    half: "full",
+    source: "web",
+    status: "confirmed",
+    created_by: auth.userId,
+    checkin_time: now,
+  };
+
+  const { error } = await admin
+    .from("attendance_logs")
+    .upsert(row, { onConflict: "employee_id,date" });
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/");
+  revalidatePath("/history");
+  return { ok: true };
+}
+
+/**
+ * "Check out" button on the Today banner. Updates today's row with
+ * checkout_time = current Karachi time. Returns an error if no row
+ * exists or the user has already checked out.
+ */
+export async function checkOutNowAction(): Promise<ActionResult> {
+  const auth = await getActor();
+  if (!auth.ok) return auth;
+
+  const admin = createAdminClient();
+  const date = todayISO();
+
+  const { data: existing } = await admin
+    .from("attendance_logs")
+    .select("id, checkin_time, checkout_time")
+    .eq("employee_id", auth.userId)
+    .eq("date", date)
+    .maybeSingle<{
+      id: string;
+      checkin_time: string | null;
+      checkout_time: string | null;
+    }>();
+
+  if (!existing) {
+    return { ok: false, error: "You haven't checked in today" };
+  }
+  if (!existing.checkin_time) {
+    return { ok: false, error: "Check in first before checking out" };
+  }
+  if (existing.checkout_time) {
+    return {
+      ok: false,
+      error: `Already checked out at ${existing.checkout_time.slice(0, 5)}`,
+    };
+  }
+
+  const now = currentKarachiTime();
+  const { error } = await admin
+    .from("attendance_logs")
+    .update({ checkout_time: now, status: "confirmed" })
+    .eq("id", existing.id);
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/");
+  revalidatePath("/history");
   return { ok: true };
 }

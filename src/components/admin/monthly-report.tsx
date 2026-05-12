@@ -46,6 +46,8 @@ export function MonthlyReport({
       casual: 0,
       sick: 0,
       annual: 0,
+      total_hours: 0,
+      hours_days: 0,
     };
     for (const r of rows) {
       acc.present += r.present;
@@ -54,6 +56,8 @@ export function MonthlyReport({
       acc.casual += r.casual;
       acc.sick += r.sick;
       acc.annual += r.annual;
+      acc.total_hours += r.total_hours;
+      acc.hours_days += r.hours_days;
     }
     return acc;
   }, [rows]);
@@ -109,13 +113,15 @@ export function MonthlyReport({
                 <th className="px-3 py-2 font-medium text-right">Casual</th>
                 <th className="px-3 py-2 font-medium text-right">Sick</th>
                 <th className="px-3 py-2 font-medium text-right">Annual</th>
+                <th className="px-3 py-2 font-medium text-right">Avg hrs/day</th>
+                <th className="px-3 py-2 font-medium text-right">Total hrs</th>
               </tr>
             </thead>
             <tbody>
               {rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={10}
                     className="px-3 py-12 text-center text-sm text-muted-foreground"
                   >
                     No active employees in this filter.
@@ -164,6 +170,18 @@ export function MonthlyReport({
                     >
                       {r.annual}
                     </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {r.avg_hours_per_day == null
+                        ? "—"
+                        : (Math.round(r.avg_hours_per_day * 10) / 10).toFixed(
+                            1,
+                          )}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {r.total_hours > 0
+                        ? (Math.round(r.total_hours * 10) / 10).toFixed(1)
+                        : "—"}
+                    </td>
                   </tr>
                 ))
               )}
@@ -190,6 +208,19 @@ export function MonthlyReport({
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {totals.annual}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {totals.hours_days > 0
+                      ? (
+                          Math.round((totals.total_hours / totals.hours_days) * 10) /
+                          10
+                        ).toFixed(1)
+                      : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {totals.total_hours > 0
+                      ? (Math.round(totals.total_hours * 10) / 10).toFixed(1)
+                      : "—"}
                   </td>
                 </tr>
               )}

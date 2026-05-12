@@ -67,7 +67,7 @@ export async function loadDashboardData(
       admin
         .from("attendance_logs")
         .select(
-          "id, employee_id, date, type, half, reason, status, source, slack_message_ts, created_by, created_at, updated_at",
+          "id, employee_id, date, type, half, reason, status, source, slack_message_ts, created_by, created_at, updated_at, checkin_time, checkout_time, total_hours",
         )
         .eq("employee_id", employee.id)
         .gte("date", monthStart)
@@ -92,7 +92,7 @@ export async function loadDashboardData(
       admin
         .from("attendance_logs")
         .select(
-          "id, employee_id, date, type, half, reason, status, source, slack_message_ts, created_by, created_at, updated_at",
+          "id, employee_id, date, type, half, reason, status, source, slack_message_ts, created_by, created_at, updated_at, checkin_time, checkout_time, total_hours",
         )
         .eq("employee_id", employee.id)
         .eq("date", today)

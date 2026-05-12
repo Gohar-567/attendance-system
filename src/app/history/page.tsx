@@ -21,7 +21,7 @@ export default async function HistoryPage() {
   const { data: logsData } = await supabase
     .from("attendance_logs")
     .select(
-      "id, employee_id, date, type, half, reason, status, source, slack_message_ts, created_by, created_at, updated_at",
+      "id, employee_id, date, type, half, reason, status, source, slack_message_ts, created_by, created_at, updated_at, checkin_time, checkout_time, total_hours",
     )
     .eq("employee_id", user.id)
     .order("date", { ascending: false });

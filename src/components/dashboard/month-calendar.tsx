@@ -27,6 +27,13 @@ import {
   type EditableType,
 } from "@/lib/attendance";
 import { isWeekend, longDate, monthGrid } from "@/lib/date";
+import {
+  computeHours,
+  formatHours,
+  formatTimeShort,
+  fromHHMM,
+  toHHMM,
+} from "@/lib/time";
 import { cn } from "@/lib/utils";
 import {
   addBackdatedAttendanceAction,
@@ -113,7 +120,15 @@ export function MonthCalendar({
             iso: date,
             todayISO,
           });
-          const glyph = cellGlyph(log) || (holidayName ? "H" : "");
+          // Phase 7C: show total_hours when set; otherwise fall back to
+          // the legacy glyph ("L", "S", "H"...) so leave/sick cells still
+          // read at a glance.
+          const hoursDisplay =
+            log?.total_hours != null ? formatHours(log.total_hours) : null;
+          // Use `||` (not `??`) so cellGlyph's empty-string return falls
+          // through to the holiday fallback.
+          const glyph =
+            hoursDisplay || cellGlyph(log) || (holidayName ? "H" : "");
           const day = Number(date.slice(8, 10));
           const canBackdate = isBackdatable(date);
           const future = date > todayISO;
@@ -343,6 +358,28 @@ function ViewBody({ log }: { log: AttendanceLog }) {
         />
       )}
       {log.reason && <Field label="Reason" value={log.reason} />}
+      {(log.checkin_time || log.checkout_time) && (
+        <>
+          <Field
+            label="Check-in"
+            value={
+              log.checkin_time ? formatTimeShort(log.checkin_time) : "—"
+            }
+          />
+          <Field
+            label="Check-out"
+            value={
+              log.checkout_time ? formatTimeShort(log.checkout_time) : "—"
+            }
+          />
+        </>
+      )}
+      {log.total_hours != null && (
+        <Field
+          label="Total hours"
+          value={formatHours(log.total_hours, true)}
+        />
+      )}
       <Field
         label="Source"
         value={
@@ -394,24 +431,47 @@ function EditForm({
   const [type, setType] = useState<EditableType>(initialType);
   const [half, setHalf] = useState<AttendanceHalf>(log.half);
   const [reason, setReason] = useState(log.reason ?? "");
+  const [checkin, setCheckin] = useState(toHHMM(log.checkin_time));
+  const [checkout, setCheckout] = useState(toHHMM(log.checkout_time));
   const [pending, startTransition] = useTransition();
+
+  // Time pickers only relevant for Present / WFH / EWD.
+  const showTimes =
+    type === "present" || type === "wfh" || type === "ewd";
+
+  const livePreview = showTimes
+    ? computeHours(
+        checkin ? fromHHMM(checkin) : null,
+        checkout ? fromHHMM(checkout) : null,
+      )
+    : type === "half_leave"
+      ? 4
+      : null;
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     startTransition(async () => {
-      // half only matters when type is half_leave; for everything else
-      // collapse to "full".
       const halfForServer: AttendanceHalf =
         type === "half_leave"
           ? half === "full"
             ? "first_half"
             : half
           : "full";
+      // Send time changes through; the SQL trigger recomputes total_hours.
+      // When the user switches to half/sick we DELIBERATELY don't clear
+      // the times in the DB — the trigger forces 4.0/NULL regardless of
+      // stored values, so the stored times can stay as a record.
       const res = await editAttendanceAction({
         logId: log.id,
         type,
         half: halfForServer,
         reason: reason.trim() || null,
+        ...(showTimes
+          ? {
+              checkinTime: checkin ? fromHHMM(checkin) : null,
+              checkoutTime: checkout ? fromHHMM(checkout) : null,
+            }
+          : {}),
       });
       if (!res.ok) {
         toast.error(res.error ?? "Couldn't save");
@@ -430,6 +490,15 @@ function EditForm({
         onTypeChange={setType}
         onHalfChange={setHalf}
       />
+      {showTimes && (
+        <TimePickerFields
+          checkin={checkin}
+          checkout={checkout}
+          onCheckinChange={setCheckin}
+          onCheckoutChange={setCheckout}
+          previewHours={livePreview}
+        />
+      )}
       <ReasonField value={reason} onChange={setReason} />
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>
@@ -457,7 +526,20 @@ function AddForm({
   const [type, setType] = useState<EditableType>("present");
   const [half, setHalf] = useState<AttendanceHalf>("first_half");
   const [reason, setReason] = useState("");
+  const [checkin, setCheckin] = useState("");
+  const [checkout, setCheckout] = useState("");
   const [pending, startTransition] = useTransition();
+
+  const showTimes =
+    type === "present" || type === "wfh" || type === "ewd";
+  const livePreview = showTimes
+    ? computeHours(
+        checkin ? fromHHMM(checkin) : null,
+        checkout ? fromHHMM(checkout) : null,
+      )
+    : type === "half_leave"
+      ? 4
+      : null;
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -468,6 +550,12 @@ function AddForm({
         type,
         half: type === "half_leave" ? half : "full",
         reason: reason.trim() || null,
+        ...(showTimes
+          ? {
+              checkinTime: checkin ? fromHHMM(checkin) : null,
+              checkoutTime: checkout ? fromHHMM(checkout) : null,
+            }
+          : {}),
       });
       if (!res.ok) {
         toast.error(res.error ?? "Couldn't save");
@@ -486,6 +574,15 @@ function AddForm({
         onTypeChange={setType}
         onHalfChange={setHalf}
       />
+      {showTimes && (
+        <TimePickerFields
+          checkin={checkin}
+          checkout={checkout}
+          onCheckinChange={setCheckin}
+          onCheckoutChange={setCheckout}
+          previewHours={livePreview}
+        />
+      )}
       <ReasonField value={reason} onChange={setReason} />
       <DialogFooter>
         <Button type="button" variant="outline" onClick={onCancel} disabled={pending}>
@@ -593,6 +690,52 @@ function ReasonField({
         maxLength={500}
         placeholder="A short note for context"
       />
+    </div>
+  );
+}
+
+function TimePickerFields({
+  checkin,
+  checkout,
+  onCheckinChange,
+  onCheckoutChange,
+  previewHours,
+}: {
+  checkin: string;
+  checkout: string;
+  onCheckinChange: (v: string) => void;
+  onCheckoutChange: (v: string) => void;
+  previewHours: number | null;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="edit-checkin">Check-in</Label>
+          <input
+            id="edit-checkin"
+            type="time"
+            value={checkin}
+            onChange={(e) => onCheckinChange(e.target.value)}
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="edit-checkout">Check-out</Label>
+          <input
+            id="edit-checkout"
+            type="time"
+            value={checkout}
+            onChange={(e) => onCheckoutChange(e.target.value)}
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          />
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        {previewHours == null
+          ? "Live total appears once both times are filled (and the range is sensible)."
+          : `Total: ${formatHours(previewHours, true)}`}
+      </p>
     </div>
   );
 }

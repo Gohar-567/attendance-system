@@ -15,6 +15,12 @@ export interface MonthlyReportRow {
   casual: number;
   sick: number;
   annual: number;
+  /** Phase 7C — sum of total_hours for this employee this month. */
+  total_hours: number;
+  /** Days the user actually has hours data for (denominator for avg). */
+  hours_days: number;
+  /** total_hours / hours_days; null when no hours yet. */
+  avg_hours_per_day: number | null;
 }
 
 export interface MonthlyKpis {
@@ -53,7 +59,7 @@ export async function fetchMonthlySummary(opts: {
     empQ,
     admin
       .from("attendance_logs")
-      .select("employee_id, date, type, reason")
+      .select("employee_id, date, type, reason, total_hours")
       .gte("date", fromISO)
       .lte("date", toISO),
     fetchHolidaySet(admin, fromISO, toISO),
@@ -70,6 +76,7 @@ export async function fetchMonthlySummary(opts: {
     date: string;
     type: string;
     reason: string | null;
+    total_hours: number | null;
   };
 
   const employees = (empRes.data ?? []) as unknown as EmpRow[];
@@ -89,6 +96,9 @@ export async function fetchMonthlySummary(opts: {
       casual: 0,
       sick: 0,
       annual: 0,
+      total_hours: 0,
+      hours_days: 0,
+      avg_hours_per_day: null,
     });
   }
 
@@ -118,9 +128,17 @@ export async function fetchMonthlySummary(opts: {
       default:
         break;
     }
+    if (l.total_hours != null) {
+      row.total_hours += Number(l.total_hours);
+      row.hours_days++;
+    }
   }
 
-  const rows = [...stats.values()];
+  const rows = [...stats.values()].map((r) => ({
+    ...r,
+    avg_hours_per_day:
+      r.hours_days > 0 ? r.total_hours / r.hours_days : null,
+  }));
 
   const workingDays = countWorkingDays(fromISO, toISO, holidaySet);
 
