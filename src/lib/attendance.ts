@@ -53,8 +53,9 @@ export interface AttendanceLog {
   created_by: string | null;
   created_at: string;
   updated_at: string;
-  /** Phase 7C: TIMETZ ("HH:MM:SS+05") set when the user / bot logged a
-   *  check-in for the day; null on leave/holiday days. */
+  /** Phase 7C: Postgres TIME ("HH:MM:SS") set when the user / bot logged
+   *  a check-in for the day; null on leave/holiday days. The whole app
+   *  operates in Asia/Karachi so there's no timezone on the column. */
   checkin_time: string | null;
   /** Phase 7C: same shape as checkin_time. */
   checkout_time: string | null;
