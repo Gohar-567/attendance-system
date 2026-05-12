@@ -19,7 +19,7 @@ export interface ManagedEmployee {
 }
 
 export default async function ManageEmployeesPage() {
-  const { actor } = await requireAdminEmployee({ kind: "hr_or_admin" });
+  await requireAdminEmployee({ kind: "hr_or_admin" });
   const admin = createAdminClient();
 
   const [empRes, teamRes] = await Promise.all([
@@ -56,7 +56,7 @@ export default async function ManageEmployeesPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopBar fullName={actor.full_name} teamName={null} adminLink="hr" />
+      <TopBar />
       <main className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-6 sm:py-8">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">

@@ -12,7 +12,7 @@ interface PageProps {
 }
 
 export default async function MonthlyReportPage({ searchParams }: PageProps) {
-  const { actor } = await requireAdminEmployee({ kind: "hr_or_admin" });
+  await requireAdminEmployee({ kind: "hr_or_admin" });
   const sp = await searchParams;
 
   const monthISO = sp.month
@@ -34,7 +34,7 @@ export default async function MonthlyReportPage({ searchParams }: PageProps) {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopBar fullName={actor.full_name} teamName={null} adminLink="hr" />
+      <TopBar />
       <main className="mx-auto max-w-6xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">

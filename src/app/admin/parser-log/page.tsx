@@ -49,7 +49,7 @@ export default async function ParserLogPage() {
   if (!me || (me.role !== "hr" && me.role !== "admin")) {
     return (
       <div className="min-h-screen bg-background">
-        <TopBar fullName={me?.full_name ?? "You"} teamName={me?.team?.name ?? null} />
+        <TopBar />
         <main className="mx-auto max-w-2xl px-4 py-12">
           <Card>
             <CardContent className="space-y-2 p-6">
@@ -81,7 +81,7 @@ export default async function ParserLogPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopBar fullName={me.full_name} teamName={me.team?.name ?? null} />
+      <TopBar />
       <main className="mx-auto max-w-6xl space-y-5 px-4 py-6 sm:px-6 sm:py-8">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Parser log</h1>

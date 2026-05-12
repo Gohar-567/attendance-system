@@ -89,7 +89,7 @@ export default async function ApprovalsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopBar fullName={actor.full_name} teamName={null} />
+      <TopBar />
       <main className="mx-auto max-w-4xl space-y-5 px-4 py-6 sm:px-6 sm:py-8">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">

@@ -21,8 +21,10 @@ export type AttendanceStatus =
 export type AttendanceSource =
   | "slack"
   | "web"
+  | "web_backdated"
   | "slash_command"
-  | "hr_manual";
+  | "hr_manual"
+  | "leave_request";
 
 export interface AttendanceLog {
   id: string;

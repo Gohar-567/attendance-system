@@ -77,11 +77,7 @@ export default async function TeamLeadDashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopBar
-        fullName={actor.full_name}
-        teamName={team?.name ?? null}
-        adminLink="lead"
-      />
+      <TopBar />
       <main className="mx-auto max-w-5xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">

@@ -18,19 +18,6 @@ export default async function HistoryPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: employee } = await supabase
-    .from("employees")
-    .select(
-      `id, full_name,
-       team:teams!team_id ( id, name )`,
-    )
-    .eq("id", user.id)
-    .maybeSingle<{
-      id: string;
-      full_name: string;
-      team: { id: string; name: string } | null;
-    }>();
-
   const { data: logsData } = await supabase
     .from("attendance_logs")
     .select(
@@ -55,11 +42,7 @@ export default async function HistoryPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <TopBar
-        fullName={employee?.full_name ?? "You"}
-        teamName={employee?.team?.name ?? null}
-        showHistoryLink={false}
-      />
+      <TopBar />
       <main className="mx-auto max-w-5xl space-y-5 px-4 py-6 sm:px-6 sm:py-8">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">My history</h1>
