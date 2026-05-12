@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,6 +12,9 @@ interface TeamGridProps {
   rows: TodayEmployeeRow[];
   /** Show team-filter chips above the grid. Off for /admin/team. */
   filterByTeam?: boolean;
+  /** When set, each tile becomes a Link to `${linkBase}/{employee_id}`.
+   *  Used on /admin (HR) to deep-link to /admin/employees/[id]. */
+  linkBase?: string;
 }
 
 const TONE: Record<string, { tile: string; text: string }> = {
@@ -48,7 +52,11 @@ const TONE: Record<string, { tile: string; text: string }> = {
   },
 };
 
-export function TeamGrid({ rows, filterByTeam = true }: TeamGridProps) {
+export function TeamGrid({
+  rows,
+  filterByTeam = true,
+  linkBase,
+}: TeamGridProps) {
   const teams = useMemo(() => {
     const m = new Map<string, string>();
     for (const r of rows) {
@@ -93,14 +101,8 @@ export function TeamGrid({ rows, filterByTeam = true }: TeamGridProps) {
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {visible.map((r) => {
             const tone = TONE[r.status] ?? TONE.unmarked;
-            return (
-              <div
-                key={r.employee_id}
-                className={cn(
-                  "rounded-lg border p-3 transition-colors",
-                  tone.tile,
-                )}
-              >
+            const body = (
+              <>
                 <div
                   className="truncate text-sm font-semibold"
                   title={r.full_name}
@@ -126,6 +128,24 @@ export function TeamGrid({ rows, filterByTeam = true }: TeamGridProps) {
                     </span>
                   )}
                 </div>
+              </>
+            );
+            const className = cn(
+              "block rounded-lg border p-3 transition-colors",
+              tone.tile,
+              linkBase && "hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
+            );
+            return linkBase ? (
+              <Link
+                key={r.employee_id}
+                href={`${linkBase}/${r.employee_id}`}
+                className={className}
+              >
+                {body}
+              </Link>
+            ) : (
+              <div key={r.employee_id} className={className}>
+                {body}
               </div>
             );
           })}

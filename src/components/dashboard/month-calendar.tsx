@@ -20,9 +20,11 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   cellClassesFor,
   cellGlyph,
+  EDITABLE_TYPES,
   TYPE_LABEL,
   type AttendanceHalf,
   type AttendanceLog,
+  type EditableType,
 } from "@/lib/attendance";
 import { isWeekend, longDate, monthGrid } from "@/lib/date";
 import { cn } from "@/lib/utils";
@@ -30,8 +32,6 @@ import {
   addBackdatedAttendanceAction,
   deleteAttendanceAction,
   editAttendanceAction,
-  EDITABLE_TYPES,
-  type EditableType,
 } from "@/app/actions/attendance";
 
 interface MonthCalendarProps {
@@ -43,6 +43,9 @@ interface MonthCalendarProps {
   currentUserId: string;
   /** HR/admin can edit anything (including locked rows) + delete. */
   isHr: boolean;
+  /** When set, backdated inserts target this employee instead of the
+   *  signed-in viewer. Used on `/admin/employees/[id]`. */
+  targetEmployeeId?: string;
 }
 
 const DOW_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -64,6 +67,7 @@ export function MonthCalendar({
   holidays,
   currentUserId,
   isHr,
+  targetEmployeeId,
 }: MonthCalendarProps) {
   const grid = useMemo(() => monthGrid(monthISO), [monthISO]);
   const logsByDate = useMemo(() => {
@@ -160,6 +164,7 @@ export function MonthCalendar({
         todayISO={todayISO}
         currentUserId={currentUserId}
         isHr={isHr}
+        targetEmployeeId={targetEmployeeId}
         canBackdate={openDate ? isBackdatable(openDate) : false}
         onClose={() => setOpenDate(null)}
       />
@@ -205,6 +210,7 @@ function DayDetailDialog({
   todayISO,
   currentUserId,
   isHr,
+  targetEmployeeId,
   canBackdate,
   onClose,
 }: {
@@ -214,6 +220,7 @@ function DayDetailDialog({
   todayISO: string;
   currentUserId: string;
   isHr: boolean;
+  targetEmployeeId?: string;
   canBackdate: boolean;
   onClose: () => void;
 }) {
@@ -279,6 +286,7 @@ function DayDetailDialog({
         {mode === "add" && date && (
           <AddForm
             date={date}
+            targetEmployeeId={targetEmployeeId}
             onSaved={() => {
               setMode("view");
               onClose();
@@ -437,10 +445,12 @@ function EditForm({
 
 function AddForm({
   date,
+  targetEmployeeId,
   onSaved,
   onCancel,
 }: {
   date: string;
+  targetEmployeeId?: string;
   onSaved: () => void;
   onCancel: () => void;
 }) {
@@ -454,6 +464,7 @@ function AddForm({
     startTransition(async () => {
       const res = await addBackdatedAttendanceAction({
         date,
+        employeeId: targetEmployeeId,
         type,
         half: type === "half_leave" ? half : "full",
         reason: reason.trim() || null,

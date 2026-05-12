@@ -9,6 +9,20 @@ export type AttendanceType =
   | "sick"
   | "holiday";
 
+/** Attendance types employees can pick from the edit / backdate form.
+ *  Excludes full_leave (goes through the approval flow) and holiday
+ *  (seeded in the holidays table). Lives here rather than in a
+ *  "use server" file because Next.js requires those files to export
+ *  only async functions. */
+export const EDITABLE_TYPES = [
+  "present",
+  "wfh",
+  "ewd",
+  "half_leave",
+  "sick",
+] as const;
+export type EditableType = (typeof EDITABLE_TYPES)[number];
+
 export type AttendanceHalf = "full" | "first_half" | "second_half";
 
 export type AttendanceStatus =

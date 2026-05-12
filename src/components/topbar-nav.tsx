@@ -3,10 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Menu, Settings as SettingsIcon, X } from "lucide-react";
+import { ChevronDown, Menu, Settings as SettingsIcon, X } from "lucide-react";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SignOutButton } from "@/components/sign-out-button";
 import { cn } from "@/lib/utils";
 import type { EmployeeRole } from "@/lib/nav";
@@ -14,8 +22,14 @@ import type { EmployeeRole } from "@/lib/nav";
 interface NavItem {
   href: string;
   label: string;
-  /** Match this path AND any nested path under it for active state. */
+  /** Match this prefix for active state (e.g. /leave matches /leave/new too). */
   match?: string;
+}
+
+interface MenuGroup {
+  key: "me" | "team" | "admin";
+  label: string;
+  items: NavItem[];
 }
 
 export interface TopBarNavProps {
@@ -27,13 +41,23 @@ export interface TopBarNavProps {
 }
 
 /**
- * Build the menu per role per §7A of PHASE_7_DESIGN.md.
- * "Hours overview" intentionally absent — that page ships in PR 2.
+ * Build the role-aware menu per PHASE_7_DESIGN.md §7A. Items inside a group
+ * collapse into a single desktop dropdown; mobile renders them as labelled
+ * sections in the slide-out drawer.
+ *
+ * "Hours overview" is intentionally omitted — that page lives in PR 2.
  */
-function buildMenu({ isHr, isLead }: { isHr: boolean; isLead: boolean }) {
-  const sections: { heading?: string; items: NavItem[] }[] = [
+function buildMenu({
+  isHr,
+  isLead,
+}: {
+  isHr: boolean;
+  isLead: boolean;
+}): MenuGroup[] {
+  const groups: MenuGroup[] = [
     {
-      heading: "Me",
+      key: "me",
+      label: "Me",
       items: [
         { href: "/", label: "My calendar" },
         { href: "/history", label: "My history" },
@@ -48,37 +72,42 @@ function buildMenu({ isHr, isLead }: { isHr: boolean; isLead: boolean }) {
     const teamItems: NavItem[] = [
       { href: "/approvals", label: "Approvals" },
     ];
-    // Team view is leads-only per spec; HR has /admin instead.
+    // Team view is leads-only per the spec — HR uses /admin instead.
     if (isLead && !isHr) {
       teamItems.push({ href: "/admin/team", label: "Team view" });
     }
-    sections.push({ heading: "Team", items: teamItems });
+    groups.push({ key: "team", label: "Team", items: teamItems });
   }
 
   if (isHr) {
-    sections.push({
-      heading: "Admin",
+    groups.push({
+      key: "admin",
+      label: "Admin",
       items: [
         { href: "/admin", label: "Admin dashboard" },
         { href: "/admin/report", label: "Reports" },
-        { href: "/admin/employees", label: "Manage employees" },
+        {
+          href: "/admin/employees",
+          label: "Manage employees",
+          match: "/admin/employees",
+        },
         { href: "/admin/teams", label: "Manage teams" },
         { href: "/admin/parser-log", label: "Parser log" },
       ],
     });
   }
 
-  return sections;
+  return groups;
 }
 
-function isActive(
-  pathname: string,
-  item: Pick<NavItem, "href"> & Partial<Pick<NavItem, "match">>,
-): boolean {
+function isItemActive(pathname: string, item: NavItem | { href: string; match?: string }): boolean {
   if (item.href === "/") return pathname === "/";
   const base = item.match ?? item.href;
-  // Exact match, or nested route under this href.
   return pathname === base || pathname.startsWith(`${base}/`);
+}
+
+function isGroupActive(pathname: string, group: MenuGroup): boolean {
+  return group.items.some((it) => isItemActive(pathname, it));
 }
 
 export function TopBarNav({
@@ -89,10 +118,9 @@ export function TopBarNav({
 }: TopBarNavProps) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const sections = buildMenu({ isHr, isLead });
-  const allItems = sections.flatMap((s) => s.items);
+  const groups = buildMenu({ isHr, isLead });
 
-  // Close the drawer when the route changes (link clicked).
+  // Close the drawer on route change.
   useEffect(() => {
     setDrawerOpen(false);
   }, [pathname]);
@@ -114,14 +142,18 @@ export function TopBarNav({
     .map((s) => s[0]?.toUpperCase())
     .join("");
 
+  const settingsActive = isItemActive(pathname, { href: "/settings" });
+
   return (
     <header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
         <Link href="/" className="flex min-w-0 items-center gap-3">
-          <Avatar>
-            <AvatarFallback>{initials || "?"}</AvatarFallback>
+          <Avatar className="h-8 w-8 shrink-0">
+            <AvatarFallback className="text-xs">
+              {initials || "?"}
+            </AvatarFallback>
           </Avatar>
-          <div className="min-w-0">
+          <div className="hidden min-w-0 md:block">
             <div className="truncate text-sm font-semibold leading-tight">
               {fullName}
             </div>
@@ -131,45 +163,57 @@ export function TopBarNav({
           </div>
         </Link>
 
-        {/* Desktop: inline nav. Renders sections separated by a thin divider. */}
+        {/* Desktop: grouped dropdowns. */}
         <nav
           aria-label="Primary"
           className="hidden flex-1 items-center justify-end gap-1 sm:flex"
         >
-          {allItems.map((it) => {
-            // Use leading divider on the first item of each section after the first.
-            const sectionIndex = sections.findIndex((s) =>
-              s.items.includes(it),
-            );
-            const isFirstInSection =
-              sectionIndex > 0 && sections[sectionIndex].items[0] === it;
-            const active = isActive(pathname, it);
+          {groups.map((group) => {
+            const active = isGroupActive(pathname, group);
             return (
-              <span key={it.href} className="flex items-center gap-1">
-                {isFirstInSection && (
-                  <span
-                    aria-hidden
-                    className="mx-1 h-5 w-px bg-border"
-                  />
-                )}
-                <Button
-                  variant={active ? "secondary" : "ghost"}
-                  size="sm"
-                  asChild
-                  className={cn(active && "font-semibold")}
-                >
-                  <Link href={it.href} aria-current={active ? "page" : undefined}>
-                    {it.label}
-                  </Link>
-                </Button>
-              </span>
+              <DropdownMenu key={group.key}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant={active ? "secondary" : "ghost"}
+                    size="sm"
+                    className={cn(
+                      "gap-1",
+                      active && "font-semibold",
+                    )}
+                  >
+                    {group.label}
+                    <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-[12rem]">
+                  <DropdownMenuLabel>{group.label}</DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {group.items.map((it) => {
+                    const itemActive = isItemActive(pathname, it);
+                    return (
+                      <DropdownMenuItem key={it.href} asChild>
+                        <Link
+                          href={it.href}
+                          aria-current={itemActive ? "page" : undefined}
+                          className={cn(
+                            "w-full",
+                            itemActive && "font-semibold text-foreground",
+                          )}
+                        >
+                          {it.label}
+                        </Link>
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </DropdownMenuContent>
+              </DropdownMenu>
             );
           })}
 
           <span aria-hidden className="mx-1 h-5 w-px bg-border" />
 
           <Button
-            variant={isActive(pathname, { href: "/settings" }) ? "secondary" : "ghost"}
+            variant={settingsActive ? "secondary" : "ghost"}
             size="icon"
             asChild
             title="Notification settings"
@@ -209,7 +253,21 @@ export function TopBarNav({
             className="fixed inset-y-0 right-0 z-50 flex w-72 max-w-[85vw] flex-col bg-background shadow-xl sm:hidden"
           >
             <div className="flex h-14 items-center justify-between border-b px-4">
-              <span className="text-sm font-semibold">Menu</span>
+              <div className="flex min-w-0 items-center gap-2">
+                <Avatar className="h-8 w-8 shrink-0">
+                  <AvatarFallback className="text-xs">
+                    {initials || "?"}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-semibold">
+                    {fullName}
+                  </div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {teamName ?? "No team yet"}
+                  </div>
+                </div>
+              </div>
               <Button
                 variant="ghost"
                 size="icon"
@@ -220,16 +278,17 @@ export function TopBarNav({
               </Button>
             </div>
             <div className="flex-1 overflow-y-auto p-3">
-              {sections.map((section, si) => (
-                <div key={si} className={cn(si > 0 && "mt-4 border-t pt-4")}>
-                  {section.heading && (
-                    <div className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      {section.heading}
-                    </div>
-                  )}
+              {groups.map((group, i) => (
+                <div
+                  key={group.key}
+                  className={cn(i > 0 && "mt-4 border-t pt-4")}
+                >
+                  <div className="px-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    {group.label}
+                  </div>
                   <ul className="space-y-0.5">
-                    {section.items.map((it) => {
-                      const active = isActive(pathname, it);
+                    {group.items.map((it) => {
+                      const active = isItemActive(pathname, it);
                       return (
                         <li key={it.href}>
                           <Link
@@ -256,7 +315,7 @@ export function TopBarNav({
                 href="/settings"
                 className={cn(
                   "flex min-h-[44px] items-center gap-2 rounded-md px-3 text-sm transition-colors",
-                  isActive(pathname, { href: "/settings" })
+                  settingsActive
                     ? "bg-secondary font-semibold"
                     : "text-foreground/80 hover:bg-muted",
                 )}

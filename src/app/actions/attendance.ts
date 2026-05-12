@@ -5,24 +5,12 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { todayISO, dowOf, isWeekend } from "@/lib/date";
-import type { AttendanceHalf } from "@/lib/attendance";
-
-export interface ActionResult {
-  ok: boolean;
-  error?: string;
-}
-
-/** Types the self-edit + backdate forms allow. Full-leave + holiday
- *  intentionally absent: full leaves go through the approval flow, and
- *  holidays are seeded in the holidays table. */
-export const EDITABLE_TYPES = [
-  "present",
-  "wfh",
-  "ewd",
-  "half_leave",
-  "sick",
-] as const;
-export type EditableType = (typeof EDITABLE_TYPES)[number];
+import { EDITABLE_TYPES, type EditableType } from "@/lib/attendance";
+import type {
+  ActionResult,
+  BackdatedAttendanceInput,
+  EditAttendanceInput,
+} from "./types";
 
 /**
  * Mark today as WFH (full day) for the current user. Idempotent: upserts
@@ -88,13 +76,6 @@ function isLocked(row: { source: string; status: string }): boolean {
   return row.source === "leave_request" && row.status === "approved";
 }
 
-export interface EditAttendanceInput {
-  logId: string;
-  type: EditableType;
-  half: AttendanceHalf;
-  reason: string | null;
-}
-
 /**
  * Edit an existing attendance_logs row from the Day Detail modal.
  *
@@ -156,9 +137,13 @@ export async function editAttendanceAction(
     .eq("id", input.logId);
   if (updateErr) return { ok: false, error: updateErr.message };
 
+  // HR editing someone else's row gets a distinct audit action so we can
+  // grep / report on cross-employee changes separately from self-edits.
+  const hrOnOthers = isHr(auth.role) && !userOwns;
+
   await admin.from("audit_log").insert({
     actor_id: auth.userId,
-    action: "attendance_edited",
+    action: hrOnOthers ? "attendance_edited_by_hr" : "attendance_edited",
     target_type: "attendance_log",
     target_id: input.logId,
     details: {
@@ -169,11 +154,18 @@ export async function editAttendanceAction(
         status: before.status,
       },
       after: patch,
+      ...(hrOnOthers
+        ? {
+            actor_id: auth.userId,
+            target_employee_id: before.employee_id,
+          }
+        : null),
     },
   });
 
   revalidatePath("/");
   revalidatePath("/history");
+  revalidatePath(`/admin/employees/${before.employee_id}`);
   return { ok: true };
 }
 
@@ -208,22 +200,18 @@ export async function deleteAttendanceAction(
     action: "attendance_deleted",
     target_type: "attendance_log",
     target_id: logId,
-    details: { before },
+    details: {
+      before,
+      ...(before.employee_id !== auth.userId
+        ? { actor_id: auth.userId, target_employee_id: before.employee_id }
+        : null),
+    },
   });
 
   revalidatePath("/");
   revalidatePath("/history");
+  revalidatePath(`/admin/employees/${before.employee_id}`);
   return { ok: true };
-}
-
-export interface BackdatedAttendanceInput {
-  /** YYYY-MM-DD of the past empty weekday cell the user clicked. */
-  date: string;
-  /** Defaults to the current user; HR/admin can backfill for others. */
-  employeeId?: string;
-  type: EditableType;
-  half: AttendanceHalf;
-  reason: string | null;
 }
 
 /**
@@ -309,10 +297,14 @@ export async function addBackdatedAttendanceAction(
         half: input.half,
         reason: input.reason ?? null,
       },
+      ...(employeeId !== auth.userId
+        ? { actor_id: auth.userId, target_employee_id: employeeId }
+        : null),
     },
   });
 
   revalidatePath("/");
   revalidatePath("/history");
+  revalidatePath(`/admin/employees/${employeeId}`);
   return { ok: true };
 }
