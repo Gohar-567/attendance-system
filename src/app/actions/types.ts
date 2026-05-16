@@ -81,6 +81,38 @@ export interface CreateEmployeeInput {
   role: EmployeeRole;
   join_date: string;
   allowances?: { casual: number; sick: number; annual: number };
+  /** Phase 8A — when set, HR is provisioning an email+password account.
+   *  We create the auth.users row first via the Admin API, then INSERT
+   *  the employees row with id = auth.users.id so RLS lines up. */
+  password?: string;
+  /** Phase 8A — when true, must_change_password=true is stored on the
+   *  employees row so the user's first login is forced through
+   *  /account/change-password. Default: true when password is set. */
+  forcePasswordChange?: boolean;
+}
+
+// ---- admin: password ------------------------------------------------
+
+export interface ResetEmployeePasswordInput {
+  employeeId: string;
+  newPassword: string;
+  /** Default true — HR almost always wants the user to pick their own. */
+  forcePasswordChange?: boolean;
+}
+
+// ---- self-serve auth ------------------------------------------------
+
+export interface ChangeOwnPasswordInput {
+  currentPassword: string;
+  newPassword: string;
+}
+
+export interface CompleteForcedChangeInput {
+  newPassword: string;
+}
+
+export interface ResetPasswordSelfInput {
+  newPassword: string;
 }
 
 export interface UpdateEmployeeInput {

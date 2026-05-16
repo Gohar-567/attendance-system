@@ -3,11 +3,13 @@ import { notFound } from "next/navigation";
 
 import { TopBar } from "@/components/topbar";
 import { DashboardSections } from "@/components/dashboard/dashboard-sections";
+import { ResetPasswordButton } from "@/components/admin/reset-password-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdminEmployee } from "@/lib/admin/guard";
 import { loadDashboardData } from "@/lib/dashboard";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +25,17 @@ export default async function EmployeeCalendarPage({ params }: PageProps) {
   if (!data) notFound();
 
   const isSelf = data.employee.id === actor.id;
+
+  // Read the employee's current auth_method so the "Reset password" button
+  // copy can adapt ("set a password" vs "reset password"). loadDashboardData
+  // doesn't return it — read separately.
+  const admin = createAdminClient();
+  const { data: authRow } = await admin
+    .from("employees")
+    .select("auth_method")
+    .eq("id", data.employee.id)
+    .maybeSingle<{ auth_method: string }>();
+  const authMethod = authRow?.auth_method ?? "slack";
 
   return (
     <div className="min-h-screen bg-background">
@@ -60,6 +73,11 @@ export default async function EmployeeCalendarPage({ params }: PageProps) {
                   Edit profile
                 </Link>
               </Button>
+              <ResetPasswordButton
+                employeeId={data.employee.id}
+                employeeName={data.employee.full_name}
+                authMethod={authMethod}
+              />
             </div>
           </CardContent>
         </Card>

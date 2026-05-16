@@ -3,7 +3,9 @@ import { redirect } from "next/navigation";
 import { TopBar } from "@/components/topbar";
 import { Card, CardContent } from "@/components/ui/card";
 import { NotificationToggles } from "@/components/settings/notification-toggles";
+import { ChangePasswordSection } from "@/components/settings/change-password-section";
 import { createClient } from "@/lib/supabase/server";
+import { hasPasswordAuth } from "@/lib/auth/password";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +19,7 @@ export default async function SettingsPage() {
   const { data: employee } = await supabase
     .from("employees")
     .select(
-      `id, full_name, digest_enabled, nudge_enabled,
+      `id, full_name, digest_enabled, nudge_enabled, auth_method,
        team:teams!team_id ( id, name )`,
     )
     .eq("id", user.id)
@@ -26,6 +28,7 @@ export default async function SettingsPage() {
       full_name: string;
       digest_enabled: boolean;
       nudge_enabled: boolean;
+      auth_method: string;
       team: { id: string; name: string } | null;
     }>();
 
@@ -60,6 +63,8 @@ export default async function SettingsPage() {
           digestEnabled={employee.digest_enabled}
           nudgeEnabled={employee.nudge_enabled}
         />
+
+        {hasPasswordAuth(employee.auth_method) && <ChangePasswordSection />}
       </main>
     </div>
   );
