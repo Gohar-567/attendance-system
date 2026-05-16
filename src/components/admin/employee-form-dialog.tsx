@@ -14,15 +14,18 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   createEmployeeAction,
   updateEmployeeAction,
 } from "@/app/actions/admin";
 import { todayISO } from "@/lib/date";
+import { MIN_PASSWORD_LENGTH } from "@/lib/auth/password";
 import type { ManagedEmployee } from "@/app/admin/employees/page";
 
 const ROLES = ["employee", "team_lead", "hr", "admin"] as const;
 const DEFAULT = { casual: 10, sick: 8, annual: 14 };
+type LoginMethod = "slack" | "password";
 
 interface Props {
   open: boolean;
@@ -41,6 +44,10 @@ interface FormState {
   casual: number;
   sick: number;
   annual: number;
+  /** Phase 8A — only meaningful when creating a new employee. */
+  login_method: LoginMethod;
+  password: string;
+  force_password_change: boolean;
 }
 
 function initialState(editing?: ManagedEmployee): FormState {
@@ -55,6 +62,9 @@ function initialState(editing?: ManagedEmployee): FormState {
       casual: DEFAULT.casual,
       sick: DEFAULT.sick,
       annual: DEFAULT.annual,
+      login_method: "slack",
+      password: "",
+      force_password_change: true,
     };
   }
   return {
@@ -67,6 +77,9 @@ function initialState(editing?: ManagedEmployee): FormState {
     casual: editing.leave_allowances.casual,
     sick: editing.leave_allowances.sick,
     annual: editing.leave_allowances.annual,
+    login_method: "slack",
+    password: "",
+    force_password_change: true,
   };
 }
 
@@ -89,6 +102,16 @@ export function EmployeeFormDialog({ open, editing, teams, onClose }: Props) {
       sick: Number(form.sick),
       annual: Number(form.annual),
     };
+    if (
+      !editing &&
+      form.login_method === "password" &&
+      form.password.length < MIN_PASSWORD_LENGTH
+    ) {
+      toast.error(
+        `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+      );
+      return;
+    }
     startTransition(async () => {
       const res = editing
         ? await updateEmployeeAction({
@@ -108,6 +131,12 @@ export function EmployeeFormDialog({ open, editing, teams, onClose }: Props) {
             role: form.role,
             join_date: form.join_date,
             allowances,
+            ...(form.login_method === "password"
+              ? {
+                  password: form.password,
+                  forcePasswordChange: form.force_password_change,
+                }
+              : {}),
           });
       if (!res.ok) {
         toast.error(res.error ?? "Failed");
@@ -247,6 +276,94 @@ export function EmployeeFormDialog({ open, editing, teams, onClose }: Props) {
               </Field>
             </div>
           </div>
+
+          {!editing && (
+            <div className="space-y-2 rounded-md border bg-muted/30 p-3">
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                Login method
+              </Label>
+              <RadioGroup
+                value={form.login_method}
+                onValueChange={(v) =>
+                  setForm({ ...form, login_method: v as LoginMethod })
+                }
+                className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+              >
+                <label
+                  htmlFor="login-slack"
+                  className={`flex cursor-pointer items-start gap-2 rounded-md border bg-background p-3 ${
+                    form.login_method === "slack"
+                      ? "border-primary"
+                      : "border-border"
+                  }`}
+                >
+                  <RadioGroupItem
+                    id="login-slack"
+                    value="slack"
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <div className="text-sm font-medium">Slack only</div>
+                    <div className="text-xs text-muted-foreground">
+                      Signs in via Slack OAuth. No password required.
+                    </div>
+                  </div>
+                </label>
+                <label
+                  htmlFor="login-password"
+                  className={`flex cursor-pointer items-start gap-2 rounded-md border bg-background p-3 ${
+                    form.login_method === "password"
+                      ? "border-primary"
+                      : "border-border"
+                  }`}
+                >
+                  <RadioGroupItem
+                    id="login-password"
+                    value="password"
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <div className="text-sm font-medium">Password</div>
+                    <div className="text-xs text-muted-foreground">
+                      You issue a temp password; they pick their own on
+                      first sign-in.
+                    </div>
+                  </div>
+                </label>
+              </RadioGroup>
+
+              {form.login_method === "password" && (
+                <div className="space-y-2 pt-1">
+                  <Field label="Temporary password">
+                    <Input
+                      type="text"
+                      autoComplete="off"
+                      minLength={MIN_PASSWORD_LENGTH}
+                      value={form.password}
+                      onChange={(e) =>
+                        setForm({ ...form, password: e.target.value })
+                      }
+                      placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`}
+                      required
+                    />
+                  </Field>
+                  <label className="flex cursor-pointer items-center gap-2 text-xs text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={form.force_password_change}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          force_password_change: e.target.checked,
+                        })
+                      }
+                    />
+                    Force change on first login (recommended)
+                  </label>
+                </div>
+              )}
+            </div>
+          )}
 
           {editing?.slack_user_id && (
             <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">

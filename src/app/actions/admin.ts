@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { validatePassword } from "@/lib/auth/password";
 import type {
   ActionResult,
   CreateEmployeeInput,
   CreateTeamInput,
+  ResetEmployeePasswordInput,
   UpdateEmployeeInput,
 } from "./types";
 
@@ -51,21 +53,60 @@ export async function createEmployeeAction(
 
   const admin = createAdminClient();
   const allowances = input.allowances ?? DEFAULT_ALLOWANCES;
+  const email = input.email.trim().toLowerCase();
+  const wantsPassword = typeof input.password === "string" && input.password.length > 0;
+
+  // Phase 8A: when HR provisions a password account, create the
+  // auth.users row first so the new employees.id can match auth.uid().
+  // That keeps RLS happy without requiring the user to ever hit the
+  // OAuth callback (which is the only place we'd otherwise realign).
+  let authUserId: string | null = null;
+  if (wantsPassword) {
+    const validity = validatePassword(input.password!);
+    if (!validity.ok) return validity;
+
+    const { data: created, error: signUpErr } = await admin.auth.admin.createUser({
+      email,
+      password: input.password,
+      email_confirm: true,
+      user_metadata: { full_name: input.full_name.trim() },
+    });
+    if (signUpErr || !created?.user) {
+      return {
+        ok: false,
+        error: signUpErr?.message ?? "Couldn't create auth user",
+      };
+    }
+    authUserId = created.user.id;
+  }
+
+  const insertRow: Record<string, unknown> = {
+    full_name: input.full_name.trim(),
+    email,
+    team_id: input.team_id,
+    role: input.role,
+    join_date: input.join_date,
+    leave_allowances: allowances,
+    is_active: true,
+    auth_method: wantsPassword ? "password" : "slack",
+    must_change_password: wantsPassword && input.forcePasswordChange !== false,
+  };
+  if (authUserId) insertRow.id = authUserId;
 
   const { data, error } = await admin
     .from("employees")
-    .insert({
-      full_name: input.full_name.trim(),
-      email: input.email.trim().toLowerCase(),
-      team_id: input.team_id,
-      role: input.role,
-      join_date: input.join_date,
-      leave_allowances: allowances,
-      is_active: true,
-    })
+    .insert(insertRow)
     .select("id")
     .single();
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    // If we created the auth user but the employees insert failed
+    // (unique-email collision, RLS surprise, etc.), tear the auth user
+    // down so the next attempt isn't blocked by a half-created account.
+    if (authUserId) {
+      await admin.auth.admin.deleteUser(authUserId).catch(() => undefined);
+    }
+    return { ok: false, error: error.message };
+  }
 
   await admin.from("audit_log").insert({
     actor_id: auth.actorId,
@@ -74,15 +115,88 @@ export async function createEmployeeAction(
     target_id: data.id,
     details: {
       full_name: input.full_name,
-      email: input.email,
+      email,
       team_id: input.team_id,
       role: input.role,
       allowances,
+      auth_method: insertRow.auth_method,
+    },
+  });
+
+  if (wantsPassword) {
+    await admin.from("audit_log").insert({
+      actor_id: auth.actorId,
+      action: "password_set_by_hr",
+      target_type: "employee",
+      target_id: data.id,
+      details: {
+        force_change: insertRow.must_change_password,
+      },
+    });
+  }
+
+  bumpAdminPaths();
+  return { ok: true, employeeId: data.id };
+}
+
+/**
+ * HR resets an employee's password from `/admin/employees/[id]`. Issues a
+ * new temp password via the Admin API and (by default) flags
+ * must_change_password so the user picks their own on next login.
+ *
+ * Sets auth_method='password' if the employee was previously Slack-only —
+ * the new password gives them a way in.
+ */
+export async function resetEmployeePasswordAction(
+  input: ResetEmployeePasswordInput,
+): Promise<ActionResult> {
+  const auth = await requireHrActor();
+  if (!auth.ok) return auth;
+
+  const validity = validatePassword(input.newPassword);
+  if (!validity.ok) return validity;
+
+  const admin = createAdminClient();
+  const { data: employee } = await admin
+    .from("employees")
+    .select("id, auth_method")
+    .eq("id", input.employeeId)
+    .maybeSingle<{ id: string; auth_method: string }>();
+  if (!employee) return { ok: false, error: "Employee not found" };
+
+  const { error: updateErr } = await admin.auth.admin.updateUserById(
+    employee.id,
+    { password: input.newPassword },
+  );
+  if (updateErr) return { ok: false, error: updateErr.message };
+
+  // Promote auth_method when we're adding password access on top of an
+  // existing Slack-only account.
+  const nextAuthMethod =
+    employee.auth_method === "slack" ? "both" : employee.auth_method || "password";
+
+  const forceChange = input.forcePasswordChange !== false;
+  await admin
+    .from("employees")
+    .update({
+      auth_method: nextAuthMethod,
+      must_change_password: forceChange,
+    })
+    .eq("id", employee.id);
+
+  await admin.from("audit_log").insert({
+    actor_id: auth.actorId,
+    action: "password_reset_by_hr",
+    target_type: "employee",
+    target_id: employee.id,
+    details: {
+      force_change: forceChange,
+      new_auth_method: nextAuthMethod,
     },
   });
 
   bumpAdminPaths();
-  return { ok: true, employeeId: data.id };
+  return { ok: true };
 }
 
 export async function updateEmployeeAction(
