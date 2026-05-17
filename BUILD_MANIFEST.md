@@ -518,4 +518,28 @@ Read the manifest. Run the SQL. Set up the accounts in Section 11. Then start Ph
 
 ---
 
+## 17. Welcome Announcement Template
+
+> Copy-paste snippet HR can send each new hire after creating their employees row. Covers all three login methods introduced through Phases 1, 7, and 8A.
+
+```
+Hey [Name] —
+
+You're all set up on the attendance system. Sign in at https://[your-app].vercel.app/login using any of these:
+
+  • Continue with Slack (one-click; uses your workspace SSO).
+  • Email + password — if HR issued you a temporary one, you'll be asked
+    to pick your own on first login.
+  • "Get a magic link" — type your work email, click the button, then
+    click the link we send to your inbox. The link expires in 1 hour.
+
+Forgot your password later? There's a "Forgot password?" link on the
+sign-in page that emails you a reset link.
+
+If you don't see any of the emails, check spam. Reach out to HR if
+you're still stuck.
+```
+
+---
+
 *End of manifest. Reach back to Claude (chat) for new design decisions, schema changes, or strategy. Use Claude Code for implementation.*
