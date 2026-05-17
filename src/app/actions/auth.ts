@@ -148,3 +148,61 @@ export async function resetPasswordSelfAction(
 
   return { ok: true };
 }
+
+/**
+ * /login → "Or get a magic link" form.
+ *
+ * Two guards against the self-signup hole (Supabase's `signInWithOtp`
+ * defaults to `shouldCreateUser: true`, which would let any address on
+ * earth create an auth.users row just by knowing the endpoint):
+ *
+ *   1. We look the address up in `employees` first and silently return
+ *      success if it's not there. The client always shows the generic
+ *      "if your email is registered, you'll get a link" message, so an
+ *      attacker can't enumerate which addresses are real.
+ *   2. We still pass `shouldCreateUser: false` to Supabase as a backstop
+ *      in case our employees check ever drifts out of sync.
+ *
+ * Validation errors (empty / malformed email) DO surface — those are
+ * the user's own input, not enumeration signal.
+ */
+export async function sendMagicLinkAction(input: {
+  email: string;
+}): Promise<ActionResult> {
+  const email = input.email.trim().toLowerCase();
+  if (!email || !email.includes("@")) {
+    return { ok: false, error: "Enter a valid email" };
+  }
+
+  // Service-role lookup — anon can't read employees (RLS), and the user
+  // isn't authenticated yet.
+  const admin = createAdminClient();
+  const { data: row } = await admin
+    .from("employees")
+    .select("id, is_active")
+    .eq("email", email)
+    .maybeSingle<{ id: string; is_active: boolean }>();
+
+  if (!row || !row.is_active) {
+    // Silent success — see comment block above.
+    return { ok: true };
+  }
+
+  const supabase = await createClient();
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: false,
+      emailRedirectTo: `${appUrl}/auth/callback`,
+    },
+  });
+  if (error) {
+    // Log internally but don't reveal to the client — the generic success
+    // copy still applies (the user should try again if they didn't get a
+    // link in a minute or two).
+    console.warn("sendMagicLinkAction signInWithOtp failed", error);
+  }
+
+  return { ok: true };
+}
