@@ -7,6 +7,7 @@ import {
   resolveEmployeeBySlackId,
   notifyUnknownUser,
   dmSlackUser,
+  type ResolvedEmployee,
 } from "@/lib/slack/identity";
 import { recordParse, upsertAttendanceLog } from "@/lib/slack/log";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -99,6 +100,17 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+/**
+ * Dispatcher. Resolves the employee once, then splits the message into
+ * non-empty trimmed lines and feeds each to `processLine`. Multi-line
+ * messages let users do `checkin 9am\ncheckout 6pm` in one shot — each
+ * line gets its own `slack_parse_log` row (synthetic ts per line so the
+ * uniqueness constraint and Slack retries still behave) and the ✅
+ * reaction fires once on the parent message if any line succeeded.
+ *
+ * Single-line messages keep their original ts and the per-line "couldn't
+ * parse" DM, so existing behaviour is unchanged.
+ */
 async function handleAttendanceMessage(opts: {
   slackUserId: string;
   channelId: string;
@@ -121,69 +133,119 @@ async function handleAttendanceMessage(opts: {
     return;
   }
 
-  const parsed = parseMessage(rawText);
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
 
-  // No regex matched at all → DM + log as failed.
-  if (parsed.kind === "none") {
-    const { alreadyProcessed } = await recordParse({
+  // Fall back to single-line semantics if Slack ever hands us empty text.
+  const effectiveLines = lines.length === 0 ? [rawText.trim()] : lines;
+  const isMultiLine = effectiveLines.length > 1;
+
+  let anySuccess = false;
+
+  for (let i = 0; i < effectiveLines.length; i++) {
+    const lineText = effectiveLines[i];
+    const lineTs = isMultiLine ? `${messageTs}:line${i}` : messageTs;
+    const ok = await processLine({
+      employee,
       slackUserId,
       channelId,
-      messageTs,
-      rawText,
-      method: "failed",
+      lineTs,
+      lineText,
+      date,
+      isMultiLine,
     });
-    if (alreadyProcessed) return;
-    await dmSlackUser(
-      slackUserId,
-      `:thinking_face: I couldn't parse "${truncate(rawText, 80)}". Please use \`/attendance\` to log it.`,
-    );
-    return;
+    if (ok) anySuccess = true;
   }
 
-  // Regex matched but below the auto-log threshold → DM + log the attempt.
+  if (anySuccess) await safeReact(channelId, messageTs);
+}
+
+/**
+ * Process a single line of the inbound message. Returns true when the
+ * line resulted in a real write (insert / checkin / checkout) — those
+ * are what trigger the ✅ reaction on the parent message. Duplicate /
+ * informational outcomes (already-checked-in, already-checked-out)
+ * return false but still DM the user, because that signal is useful
+ * even mid-multi-line.
+ *
+ * "Couldn't parse" and sub-threshold DMs only fire on single-line
+ * messages — for multi-line the user clearly meant to log several
+ * intents and we don't want to spam them about blank lines or noise.
+ */
+async function processLine(args: {
+  employee: ResolvedEmployee;
+  slackUserId: string;
+  channelId: string;
+  lineTs: string;
+  lineText: string;
+  date: string;
+  isMultiLine: boolean;
+}): Promise<boolean> {
+  const parsed = parseMessage(args.lineText);
+
+  if (parsed.kind === "none") {
+    const { alreadyProcessed } = await recordParse({
+      slackUserId: args.slackUserId,
+      channelId: args.channelId,
+      messageTs: args.lineTs,
+      rawText: args.lineText,
+      method: "failed",
+    });
+    if (alreadyProcessed) return false;
+    if (!args.isMultiLine) {
+      await dmSlackUser(
+        args.slackUserId,
+        `:thinking_face: I couldn't parse "${truncate(args.lineText, 80)}". Please use \`/attendance\` to log it.`,
+      );
+    }
+    return false;
+  }
+
   if (parsed.confidence < AUTO_LOG_THRESHOLD) {
     const { alreadyProcessed } = await recordParse({
-      slackUserId,
-      channelId,
-      messageTs,
-      rawText,
+      slackUserId: args.slackUserId,
+      channelId: args.channelId,
+      messageTs: args.lineTs,
+      rawText: args.lineText,
       method: "regex",
       parsedType: parsed.type,
       parsedHalf: parsed.half,
-      parsedDate: date,
+      parsedDate: args.date,
       parsedReason: parsedReasonWithTime(parsed.name, parsed.time),
       confidence: parsed.confidence,
     });
-    if (alreadyProcessed) return;
-    await dmSlackUser(
-      slackUserId,
-      `:thinking_face: I'm not sure I read that right ("${truncate(rawText, 80)}"). Please use \`/attendance\` to log it precisely.`,
-    );
-    return;
+    if (alreadyProcessed) return false;
+    if (!args.isMultiLine) {
+      await dmSlackUser(
+        args.slackUserId,
+        `:thinking_face: I'm not sure I read that right ("${truncate(args.lineText, 80)}"). Please use \`/attendance\` to log it precisely.`,
+      );
+    }
+    return false;
   }
 
-  // High-confidence: branch on intent.
   if (parsed.intent === "checkout") {
-    await handleCheckout({
-      employeeId: employee.id,
-      slackUserId,
-      channelId,
-      messageTs,
-      rawText,
-      date,
+    return await handleCheckout({
+      employeeId: args.employee.id,
+      slackUserId: args.slackUserId,
+      lineTs: args.lineTs,
+      lineText: args.lineText,
+      channelId: args.channelId,
+      date: args.date,
       parsedName: parsed.name,
       time: parsed.time ?? null,
     });
-    return;
   }
 
-  await handleCheckinOrInfo({
-    employeeId: employee.id,
-    slackUserId,
-    channelId,
-    messageTs,
-    rawText,
-    date,
+  return await handleCheckinOrInfo({
+    employeeId: args.employee.id,
+    slackUserId: args.slackUserId,
+    lineTs: args.lineTs,
+    lineText: args.lineText,
+    channelId: args.channelId,
+    date: args.date,
     parsedName: parsed.name,
     intent: parsed.intent,
     type: parsed.type ?? "present",
@@ -197,12 +259,12 @@ async function handleCheckout(args: {
   employeeId: string;
   slackUserId: string;
   channelId: string;
-  messageTs: string;
-  rawText: string;
+  lineTs: string;
+  lineText: string;
   date: string;
   parsedName: string;
   time: string | null;
-}) {
+}): Promise<boolean> {
   const admin = createAdminClient();
   const { data: existing } = await admin
     .from("attendance_logs")
@@ -220,39 +282,39 @@ async function handleCheckout(args: {
     const { alreadyProcessed } = await recordParse({
       slackUserId: args.slackUserId,
       channelId: args.channelId,
-      messageTs: args.messageTs,
-      rawText: args.rawText,
+      messageTs: args.lineTs,
+      rawText: args.lineText,
       method: "regex",
       parsedDate: args.date,
       parsedReason: parsedReasonWithTime(args.parsedName, args.time),
       confidence: 0.95,
     });
-    if (alreadyProcessed) return;
+    if (alreadyProcessed) return false;
     await dmSlackUser(
       args.slackUserId,
       ":wave: You haven't checked in today. Use `/attendance` to set both times.",
     );
-    return;
+    return false;
   }
 
   if (existing.checkout_time) {
     const { alreadyProcessed } = await recordParse({
       slackUserId: args.slackUserId,
       channelId: args.channelId,
-      messageTs: args.messageTs,
-      rawText: args.rawText,
+      messageTs: args.lineTs,
+      rawText: args.lineText,
       method: "regex",
       parsedDate: args.date,
       parsedReason: parsedReasonWithTime(args.parsedName, args.time),
       confidence: 0.95,
       attendanceLogId: existing.id,
     });
-    if (alreadyProcessed) return;
+    if (alreadyProcessed) return false;
     await dmSlackUser(
       args.slackUserId,
       `:information_source: You already checked out at *${formatTimeShort(existing.checkout_time)}*. Edit the entry on the dashboard if it's wrong.`,
     );
-    return;
+    return false;
   }
 
   const checkoutTime = args.time ?? currentKarachiTime();
@@ -262,31 +324,29 @@ async function handleCheckout(args: {
     .eq("id", existing.id);
   if (error) {
     console.error("checkout update failed", error);
-    return;
+    return false;
   }
 
   const { alreadyProcessed } = await recordParse({
     slackUserId: args.slackUserId,
     channelId: args.channelId,
-    messageTs: args.messageTs,
-    rawText: args.rawText,
+    messageTs: args.lineTs,
+    rawText: args.lineText,
     method: "regex",
     parsedDate: args.date,
     parsedReason: parsedReasonWithTime(args.parsedName, checkoutTime),
     confidence: 0.95,
     attendanceLogId: existing.id,
   });
-  if (alreadyProcessed) return;
-
-  await safeReact(args.channelId, args.messageTs);
+  return !alreadyProcessed;
 }
 
 async function handleCheckinOrInfo(args: {
   employeeId: string;
   slackUserId: string;
   channelId: string;
-  messageTs: string;
-  rawText: string;
+  lineTs: string;
+  lineText: string;
   date: string;
   parsedName: string;
   intent: "checkin" | "info_only";
@@ -294,7 +354,7 @@ async function handleCheckinOrInfo(args: {
   half: import("@/lib/attendance").AttendanceHalf;
   time: string | null;
   confidence: number;
-}) {
+}): Promise<boolean> {
   const admin = createAdminClient();
   const { data: existing } = await admin
     .from("attendance_logs")
@@ -309,15 +369,12 @@ async function handleCheckinOrInfo(args: {
     }>();
 
   // Already checked in → DM "you're already checked in" and don't overwrite.
-  if (
-    args.intent === "checkin" &&
-    existing?.checkin_time
-  ) {
+  if (args.intent === "checkin" && existing?.checkin_time) {
     const { alreadyProcessed } = await recordParse({
       slackUserId: args.slackUserId,
       channelId: args.channelId,
-      messageTs: args.messageTs,
-      rawText: args.rawText,
+      messageTs: args.lineTs,
+      rawText: args.lineText,
       method: "regex",
       parsedType: args.type,
       parsedHalf: args.half,
@@ -326,12 +383,12 @@ async function handleCheckinOrInfo(args: {
       confidence: args.confidence,
       attendanceLogId: existing.id,
     });
-    if (alreadyProcessed) return;
+    if (alreadyProcessed) return false;
     await dmSlackUser(
       args.slackUserId,
       `:information_source: You're already checked in at *${formatTimeShort(existing.checkin_time)}*. Edit the entry on the dashboard if it's wrong.`,
     );
-    return;
+    return false;
   }
 
   const checkinToSet =
@@ -342,10 +399,10 @@ async function handleCheckinOrInfo(args: {
     date: args.date,
     type: args.type,
     half: args.half,
-    reason: args.rawText,
+    reason: args.lineText,
     source: "slack",
     status: "auto_logged",
-    slackMessageTs: args.messageTs,
+    slackMessageTs: args.lineTs,
     createdBy: args.employeeId,
     // Only send checkin_time when we're actually setting it. Sending
     // null on info_only would erase any existing checkin.
@@ -355,8 +412,8 @@ async function handleCheckinOrInfo(args: {
   const { alreadyProcessed } = await recordParse({
     slackUserId: args.slackUserId,
     channelId: args.channelId,
-    messageTs: args.messageTs,
-    rawText: args.rawText,
+    messageTs: args.lineTs,
+    rawText: args.lineText,
     method: "regex",
     parsedType: args.type,
     parsedHalf: args.half,
@@ -365,9 +422,7 @@ async function handleCheckinOrInfo(args: {
     confidence: args.confidence,
     attendanceLogId,
   });
-  if (alreadyProcessed) return;
-
-  await safeReact(args.channelId, args.messageTs);
+  return !alreadyProcessed;
 }
 
 async function safeReact(channelId: string, messageTs: string) {

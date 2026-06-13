@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { Plus } from "lucide-react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -26,7 +27,7 @@ import {
   type AttendanceLog,
   type EditableType,
 } from "@/lib/attendance";
-import { isWeekend, longDate, monthGrid } from "@/lib/date";
+import { firstOfMonthISO, isWeekend, longDate, monthGrid, monthLabel } from "@/lib/date";
 import {
   computeHours,
   formatHours,
@@ -102,8 +103,69 @@ export function MonthCalendar({
     return true;
   }
 
+  // Month navigation: URL query string is the source of truth. The page
+  // server-fetches the right month based on ?month=YYYY-MM. Chevrons +
+  // header label adjust that param; replace() so the back button doesn't
+  // bury 12 history entries from clicking through.
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const currentMonthISO = firstOfMonthISO(todayISO);
+  const viewedMonthISO = firstOfMonthISO(monthISO);
+  const minMonthISO = addMonths(currentMonthISO, -6);
+
+  const onCurrentMonth = viewedMonthISO === currentMonthISO;
+  const onMinMonth = viewedMonthISO <= minMonthISO;
+
+  function navigateToMonth(targetISO: string) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (firstOfMonthISO(targetISO) === currentMonthISO) {
+      params.delete("month");
+    } else {
+      params.set("month", targetISO.slice(0, 7));
+    }
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname);
+  }
+
   return (
     <div>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          disabled={onMinMonth}
+          onClick={() => navigateToMonth(addMonths(viewedMonthISO, -1))}
+          aria-label="Previous month"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <button
+          type="button"
+          onClick={() => navigateToMonth(currentMonthISO)}
+          disabled={onCurrentMonth}
+          title={onCurrentMonth ? "Current month" : "Jump to current month"}
+          className={cn(
+            "rounded-md px-3 py-1.5 text-sm font-semibold tabular-nums transition-colors",
+            !onCurrentMonth && "hover:bg-muted",
+          )}
+        >
+          {monthLabel(monthISO)}
+        </button>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          disabled={onCurrentMonth}
+          onClick={() => navigateToMonth(addMonths(viewedMonthISO, 1))}
+          aria-label="Next month"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+
       <div className="grid grid-cols-7 gap-1 px-1 pb-2 text-center text-xs font-medium uppercase tracking-wide text-muted-foreground">
         {DOW_LABELS.map((d) => (
           <div key={d}>{d}</div>
@@ -786,4 +848,11 @@ function Field({
       <dd className="col-span-2">{value}</dd>
     </div>
   );
+}
+
+/** "2026-05-01" + n months → first-of-target-month ISO. */
+function addMonths(iso: string, n: number): string {
+  const [y, m] = iso.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + n, 1));
+  return d.toISOString().slice(0, 10);
 }

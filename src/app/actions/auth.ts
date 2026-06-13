@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getAppUrl } from "@/lib/env";
 import { validatePassword } from "@/lib/auth/password";
 import type {
   ActionResult,
@@ -189,7 +190,7 @@ export async function sendMagicLinkAction(input: {
   }
 
   const supabase = await createClient();
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = getAppUrl();
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {

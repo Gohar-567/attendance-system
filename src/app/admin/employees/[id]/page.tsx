@@ -9,19 +9,27 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { requireAdminEmployee } from "@/lib/admin/guard";
 import { loadDashboardData } from "@/lib/dashboard";
+import { resolveMonthParam } from "@/lib/dashboard-params";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
 interface PageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ month?: string }>;
 }
 
-export default async function EmployeeCalendarPage({ params }: PageProps) {
+export default async function EmployeeCalendarPage({
+  params,
+  searchParams,
+}: PageProps) {
   const { id } = await params;
   const { actor } = await requireAdminEmployee({ kind: "hr_or_admin" });
 
-  const data = await loadDashboardData(id);
+  const sp = await searchParams;
+  const monthISO = resolveMonthParam(sp.month);
+
+  const data = await loadDashboardData(id, { monthISO });
   if (!data) notFound();
 
   const isSelf = data.employee.id === actor.id;
