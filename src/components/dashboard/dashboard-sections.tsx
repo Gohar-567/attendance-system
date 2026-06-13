@@ -5,7 +5,7 @@ import { MonthCalendar } from "@/components/dashboard/month-calendar";
 import { QuickActions } from "@/components/dashboard/quick-actions";
 import { EmptyState } from "@/components/dashboard/empty-state";
 import { Card, CardContent } from "@/components/ui/card";
-import { isWeekend } from "@/lib/date";
+import { firstOfMonthISO, isWeekend } from "@/lib/date";
 import type { DashboardData } from "@/lib/dashboard";
 
 interface DashboardSectionsProps {
@@ -25,6 +25,10 @@ interface DashboardSectionsProps {
 /**
  * Server component that renders the calendar dashboard for one employee.
  * Used both by `/` (signed-in user) and `/admin/employees/[id]` (HR view).
+ *
+ * When the calendar is paged to a past month (data.monthStartISO !== this
+ * month), the "Hours this week" card is hidden — its data is in the
+ * current-month logs, not the loaded past-month logs.
  */
 export function DashboardSections({
   data,
@@ -36,6 +40,7 @@ export function DashboardSections({
   const {
     employee,
     todayISO,
+    monthStartISO,
     monthLogs,
     holidays,
     balance,
@@ -48,6 +53,7 @@ export function DashboardSections({
   // Only the row's owner gets the one-click check-in/out buttons.
   // HR viewing someone else uses the edit form instead.
   const isOwner = viewerId === employee.id;
+  const viewingCurrentMonth = monthStartISO === firstOfMonthISO(todayISO);
 
   if (isFirstTime) {
     return (
@@ -74,12 +80,14 @@ export function DashboardSections({
 
       <BalanceCards balance={balance} wfhThisMonth={wfhThisMonth} />
 
-      <HoursThisWeekCard monthLogs={monthLogs} todayISO={todayISO} />
+      {viewingCurrentMonth && (
+        <HoursThisWeekCard monthLogs={monthLogs} todayISO={todayISO} />
+      )}
 
       <Card>
         <CardContent className="space-y-4 p-4 sm:p-6">
           <MonthCalendar
-            monthISO={todayISO}
+            monthISO={monthStartISO}
             todayISO={todayISO}
             logs={monthLogs}
             holidays={holidays.map((h) => ({ date: h.date, name: h.name }))}

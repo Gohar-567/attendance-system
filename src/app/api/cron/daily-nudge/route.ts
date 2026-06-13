@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getAppUrl } from "@/lib/env";
 import { slackClient } from "@/lib/slack/client";
 import { todayISO } from "@/lib/date";
 import { buildNudgeBlocks } from "@/lib/cron/nudge";
@@ -40,7 +41,7 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = getAppUrl();
 
   const [empRes, todayLogs] = await Promise.all([
     admin

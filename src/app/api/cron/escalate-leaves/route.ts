@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getAppUrl } from "@/lib/env";
 import { sendLeaveApprovalDM } from "@/lib/slack/leave-dm";
 import { findTeamConflicts } from "@/lib/leave/conflicts";
 import { fetchHolidaySet } from "@/lib/leave/holidays";
@@ -71,7 +72,7 @@ export async function GET(req: NextRequest) {
   const hrUsers = (hrRows ?? []).filter((h) => h.slack_user_id);
 
   let escalatedCount = 0;
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = getAppUrl();
   const webUrl = `${appUrl}/approvals`;
 
   for (const request of toEscalate) {

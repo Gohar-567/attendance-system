@@ -169,7 +169,11 @@ function firstMatch<T extends { re: RegExp }>(
 }
 
 export function parseMessage(text: string): ParseOutcome {
-  const t = text.trim();
+  // Belt-and-suspenders case handling: every regex pattern in this file
+  // is already declared with the `i` flag, but we still normalise the
+  // input to lowercase so any future pattern (or any pattern we forget
+  // to flag) keeps working for messages like "WFH" or "CHECK IN".
+  const t = text.trim().toLowerCase();
   const time = extractTime(t);
 
   // 1. Checkout signals — these win over checkin patterns even if the

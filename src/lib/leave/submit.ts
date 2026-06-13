@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getAppUrl } from "@/lib/env";
 import { sendLeaveApprovalDM } from "@/lib/slack/leave-dm";
 import { findTeamConflicts } from "./conflicts";
 import { fetchHolidaySet } from "./holidays";
@@ -110,7 +111,7 @@ export async function submitLeaveRequest(
       ? allowance - used - workingDays
       : null;
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = getAppUrl();
   const webUrl = `${appUrl}/approvals`;
 
   const dmTargets: { approver_id: string; channel: string; ts: string }[] = [];

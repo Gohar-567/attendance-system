@@ -5,17 +5,25 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DashboardSections } from "@/components/dashboard/dashboard-sections";
 import { createClient } from "@/lib/supabase/server";
 import { loadDashboardData } from "@/lib/dashboard";
+import { resolveMonthParam } from "@/lib/dashboard-params";
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardPage() {
+interface PageProps {
+  searchParams: Promise<{ month?: string }>;
+}
+
+export default async function DashboardPage({ searchParams }: PageProps) {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const data = await loadDashboardData(user.id);
+  const sp = await searchParams;
+  const monthISO = resolveMonthParam(sp.month);
+
+  const data = await loadDashboardData(user.id, { monthISO });
   if (!data) {
     return <UnlinkedShell email={user.email ?? "your account"} />;
   }

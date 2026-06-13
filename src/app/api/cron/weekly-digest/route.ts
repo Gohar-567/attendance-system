@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getAppUrl } from "@/lib/env";
 import { slackClient } from "@/lib/slack/client";
 import { todayISO } from "@/lib/date";
 import { fetchHolidaySet } from "@/lib/leave/holidays";
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
   const days = weekDays(sun);
   const weekStart = days[0];
   const weekEnd = days[6];
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  const appUrl = getAppUrl();
 
   const [empRes, logRes, balRes, holidaySet] = await Promise.all([
     admin
