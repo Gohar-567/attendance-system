@@ -1,5 +1,17 @@
 # Phase 9 — Multi-Session Work Tracking
 
+> **Implementation refinements live in the PR description. See
+> `src/lib/business-day.ts` for the canonical business-day logic.**
+>
+> Four decisions in the PR override/refine this doc: (1) the attendance day
+> runs 9 AM → next 9 AM Asia/Karachi (`businessDate()`); (2) sessions may
+> cross midnight, capped at 16h; (3) no pre-9-AM shift handling; (4) no
+> auto-recovery of open sessions — a new check-in is blocked while a prior
+> session < 7 days old is still open. The legacy schema stored hours as
+> `checkin_time`/`checkout_time` (TIME) rather than the `checkin_at`/
+> `checkout_at` TIMESTAMPTZ columns this doc assumed, so the migration
+> backfills sessions by composing `date + time` at Asia/Karachi.
+
 > Extension to BUILD_MANIFEST.md and the Phase 7/8 design docs.
 > Replaces the single checkin/checkout model with a multi-session model that supports breaks, flexible hours, and cross-midnight shifts.
 > Read this before building. When something is ambiguous, this doc wins for Phase 9.

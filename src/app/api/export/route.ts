@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchMonthlySummary } from "@/lib/admin/monthly-report";
 import { firstOfMonthISO, lastOfMonthISO } from "@/lib/date";
+import { formatInstantTime } from "@/lib/time";
 
 export const runtime = "nodejs";
 
@@ -87,6 +88,34 @@ export async function GET(req: NextRequest) {
   };
   const details = (detailRows ?? []) as unknown as DetailRow[];
 
+  // Sessions for the month, grouped by employee + business day, so the
+  // Details sheet can list each day's session times comma-separated.
+  const { data: sessionRows } = employeeIds.length
+    ? await admin
+        .from("work_sessions")
+        .select("employee_id, session_date, started_at, ended_at")
+        .in("employee_id", employeeIds)
+        .gte("session_date", fromISO)
+        .lte("session_date", toISO)
+        .order("started_at", { ascending: true })
+    : { data: [] };
+  type SessRow = {
+    employee_id: string;
+    session_date: string;
+    started_at: string;
+    ended_at: string | null;
+  };
+  const sessionsByKey = new Map<string, string[]>();
+  for (const s of (sessionRows ?? []) as SessRow[]) {
+    const key = `${s.employee_id}|${s.session_date}`;
+    const label = `${formatInstantTime(s.started_at)}-${
+      s.ended_at ? formatInstantTime(s.ended_at) : "open"
+    }`;
+    const list = sessionsByKey.get(key) ?? [];
+    list.push(label);
+    sessionsByKey.set(key, list);
+  }
+
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Attendance system";
   workbook.created = new Date();
@@ -103,6 +132,7 @@ export async function GET(req: NextRequest) {
     { header: "Sick", key: "sick", width: 10 },
     { header: "Annual", key: "annual", width: 10 },
     { header: "Avg hrs/day", key: "avg_hours", width: 14 },
+    { header: "Sessions/day", key: "sessions_day", width: 14 },
     { header: "Total hours", key: "total_hours", width: 14 },
   ];
   summarySheet.getRow(1).font = { bold: true };
@@ -122,6 +152,10 @@ export async function GET(req: NextRequest) {
         r.avg_hours_per_day == null
           ? ""
           : Math.round(r.avg_hours_per_day * 10) / 10,
+      sessions_day:
+        r.sessions_per_day == null
+          ? ""
+          : Math.round(r.sessions_per_day * 10) / 10,
       total_hours:
         r.total_hours > 0 ? Math.round(r.total_hours * 10) / 10 : "",
     });
@@ -163,6 +197,7 @@ export async function GET(req: NextRequest) {
         totals.hours_days > 0
           ? Math.round((totals.total_hours / totals.hours_days) * 10) / 10
           : "",
+      sessions_day: "",
       total_hours:
         totals.total_hours > 0
           ? Math.round(totals.total_hours * 10) / 10
@@ -179,8 +214,7 @@ export async function GET(req: NextRequest) {
     { header: "Team", key: "team", width: 18 },
     { header: "Type", key: "type", width: 14 },
     { header: "Half", key: "half", width: 12 },
-    { header: "Check-in", key: "checkin", width: 12 },
-    { header: "Check-out", key: "checkout", width: 12 },
+    { header: "Sessions", key: "sessions", width: 36 },
     { header: "Hours", key: "hours", width: 10 },
     { header: "Reason", key: "reason", width: 40 },
     { header: "Source", key: "source", width: 14 },
@@ -196,8 +230,8 @@ export async function GET(req: NextRequest) {
       team: d.employee?.team?.name ?? "",
       type: d.type,
       half: d.half,
-      checkin: d.checkin_time ?? "",
-      checkout: d.checkout_time ?? "",
+      sessions:
+        sessionsByKey.get(`${d.employee?.id}|${d.date}`)?.join(", ") ?? "",
       hours:
         d.total_hours == null
           ? ""

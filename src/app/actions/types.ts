@@ -49,6 +49,38 @@ export interface BackdatedAttendanceInput {
   checkoutTime?: string | null;
 }
 
+// ---- Phase 9: work sessions ----------------------------------------
+
+export interface DaySessionInput {
+  /** Existing work_sessions.id when updating; omitted for a new session. */
+  id?: string;
+  /** TIMESTAMPTZ ISO string (Karachi wall time + offset). */
+  startedAt: string;
+  /** TIMESTAMPTZ ISO string, or null for an open (no-checkout) session. */
+  endedAt: string | null;
+}
+
+/**
+ * Save a whole business day in one shot: the day's type/half/reason plus
+ * the complete desired set of work sessions. The action reconciles
+ * (insert / update / delete) against what's stored. Hours are recomputed
+ * by the DB triggers. Sessions are only meaningful for present/wfh/ewd;
+ * for half/sick they're cleared.
+ */
+export interface SaveDayInput {
+  /** Business day YYYY-MM-DD (9 AM Karachi cutoff). */
+  date: string;
+  /** Defaults to the current user. HR/admin may target others. */
+  employeeId?: string;
+  /** Existing attendance_logs.id, when the day already has a row. */
+  logId?: string;
+  type: EditableType;
+  half: AttendanceHalf;
+  reason: string | null;
+  /** Complete desired session list (ignored for non-session types). */
+  sessions: DaySessionInput[];
+}
+
 // ---- leave ----------------------------------------------------------
 
 export interface LeaveActionResult extends ActionResult {

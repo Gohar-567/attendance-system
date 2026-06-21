@@ -3,18 +3,22 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { slackClient } from "@/lib/slack/client";
 import { todayISO } from "@/lib/date";
-import { formatTimeShort } from "@/lib/time";
+import { formatInstantTime } from "@/lib/time";
+import { hoursSince, MAX_SESSION_HOURS } from "@/lib/business-day";
+import { cronSkipReason } from "@/lib/cron/guards";
 
 export const runtime = "nodejs";
 
 /**
- * 8 PM PKT (= 15:00 UTC) Mon–Fri.
+ * 9 PM PKT (= 16:00 UTC) Mon–Fri.
  *
- * For every active employee with a Slack ID whose today's row has
- * checkin_time set but checkout_time still null AND the entry is a
- * working-type (present/wfh/ewd — not leave/sick/holiday/half), DM them
- * a gentle nudge. Per-employee try/catch so one bad DM doesn't kill the
- * whole run.
+ * DM every active employee who still has an OPEN work session — they
+ * checked in but never checked out. Phase 9 (9E):
+ *   - Skip weekends + holidays (manual-run guard).
+ *   - Only ping sessions open longer than 4h (don't nag someone who just
+ *     started) and shorter than 16h (≥16h is already broken — surfaced
+ *     elsewhere; don't add noise).
+ *   Per-employee try/catch so one bad DM doesn't kill the whole run.
  */
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -28,25 +32,24 @@ export async function GET(req: NextRequest) {
   const admin = createAdminClient();
   const date = todayISO();
 
-  // Pull every row for today that needs a checkout. Join in the employee
-  // for the Slack id + display name.
+  const skip = await cronSkipReason(admin, date);
+  if (skip) {
+    return NextResponse.json({ ok: true, skipped_reason: skip, sent: 0 });
+  }
+
+  // Every open session, joined to its employee for the Slack id + name.
   const { data: rows } = await admin
-    .from("attendance_logs")
+    .from("work_sessions")
     .select(
-      `id, employee_id, checkin_time, checkout_time, type,
+      `id, employee_id, started_at,
        employee:employees!employee_id ( id, full_name, slack_user_id, is_active )`,
     )
-    .eq("date", date)
-    .in("type", ["present", "wfh", "ewd"])
-    .not("checkin_time", "is", null)
-    .is("checkout_time", null);
+    .is("ended_at", null);
 
   type Row = {
     id: string;
     employee_id: string;
-    checkin_time: string;
-    checkout_time: string | null;
-    type: string;
+    started_at: string;
     employee: {
       id: string;
       full_name: string;
@@ -66,7 +69,12 @@ export async function GET(req: NextRequest) {
       skipped++;
       continue;
     }
-    const checkinPretty = formatTimeShort(r.checkin_time);
+    const age = hoursSince(r.started_at);
+    if (age < 4 || age >= MAX_SESSION_HOURS) {
+      skipped++;
+      continue;
+    }
+    const checkinPretty = formatInstantTime(r.started_at);
     try {
       await slackClient().chat.postMessage({
         channel: emp.slack_user_id,

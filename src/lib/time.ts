@@ -113,6 +113,61 @@ export function computeHours(
 }
 
 // ---------------------------------------------------------------------
+// Phase 9 — TIMESTAMPTZ (work_sessions) helpers, all in Asia/Karachi.
+// ---------------------------------------------------------------------
+
+import { KARACHI_OFFSET, KARACHI_TZ } from "@/lib/business-day";
+
+/** Karachi wall-clock parts for an instant. */
+function karachiWallParts(iso: string): {
+  date: string;
+  hour: string;
+  minute: string;
+} {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: KARACHI_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(iso));
+  const get = (t: string) => parts.find((p) => p.type === t)!.value;
+  const y = get("year");
+  const m = get("month");
+  const d = get("day");
+  let hour = get("hour");
+  if (hour === "24") hour = "00";
+  return { date: `${y}-${m}-${d}`, hour, minute: get("minute") };
+}
+
+/** TIMESTAMPTZ ISO → "9:00 AM" in Karachi. */
+export function formatInstantTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const { hour, minute } = karachiWallParts(iso);
+  const h = Number(hour);
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${minute} ${ampm}`;
+}
+
+/** TIMESTAMPTZ ISO → "YYYY-MM-DDTHH:MM" for an <input type="datetime-local">
+ *  rendered in Karachi wall time. */
+export function instantToLocalInput(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const { date, hour, minute } = karachiWallParts(iso);
+  return `${date}T${hour}:${minute}`;
+}
+
+/** "YYYY-MM-DDTHH:MM" (Karachi wall time) → TIMESTAMPTZ ISO with +05:00. */
+export function localInputToInstant(value: string): string | null {
+  const m = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/.exec(value.trim());
+  if (!m) return null;
+  return `${m[1]}T${m[2]}:${m[3]}:00${KARACHI_OFFSET}`;
+}
+
+// ---------------------------------------------------------------------
 // Slack message time extraction
 // ---------------------------------------------------------------------
 

@@ -2,13 +2,15 @@ import { CalendarCheck, CalendarX, Clock, Sparkles } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { CheckInOutControls } from "@/components/dashboard/check-in-out-controls";
-import { TYPE_LABEL, type AttendanceLog } from "@/lib/attendance";
+import { TYPE_LABEL, type AttendanceLog, type WorkSession } from "@/lib/attendance";
 import { longDate } from "@/lib/date";
-import { formatHours, formatTimeShort } from "@/lib/time";
+import { formatHours, formatInstantTime } from "@/lib/time";
 
 interface TodayBannerProps {
   todayISO: string;
   log: AttendanceLog | null;
+  /** Today's work sessions (business day = today). */
+  sessions?: WorkSession[];
   isWeekend: boolean;
   holidayName?: string | null;
   /** Hide the check-in / check-out buttons when HR is viewing another
@@ -20,6 +22,7 @@ interface TodayBannerProps {
 export function TodayBanner({
   todayISO,
   log,
+  sessions = [],
   isWeekend,
   holidayName,
   showCheckinControls = true,
@@ -93,14 +96,20 @@ export function TodayBanner({
     );
   }
 
-  // Present / WFH / EWD / Half — show check-in/check-out timeline.
-  const hasCheckin = !!log.checkin_time;
-  const hasCheckout = !!log.checkout_time;
-  const state: "needs_checkin" | "needs_checkout" | "done" = !hasCheckin
-    ? "needs_checkin"
-    : !hasCheckout
-      ? "needs_checkout"
-      : "done";
+  // Present / WFH / EWD / Half — show session timeline.
+  const openSession = sessions.find((s) => s.ended_at == null) ?? null;
+  const closedSessions = sessions.filter((s) => s.ended_at != null);
+  const hasAnySession = sessions.length > 0;
+  const firstStart = sessions[0]?.started_at ?? null;
+  const lastEnd =
+    closedSessions.length > 0
+      ? closedSessions[closedSessions.length - 1].ended_at
+      : null;
+  const state: "needs_checkin" | "needs_checkout" | "done" = openSession
+    ? "needs_checkout"
+    : hasAnySession
+      ? "done"
+      : "needs_checkin";
 
   return (
     <Banner
@@ -130,18 +139,22 @@ export function TodayBanner({
       )}
       {log.type !== "half_leave" && (
         <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-normal text-blue-50/95">
-          {hasCheckin ? (
+          {firstStart ? (
             <span className="inline-flex items-center gap-1">
               <Clock className="h-3.5 w-3.5 opacity-80" />
-              Checked in <strong>{formatTimeShort(log.checkin_time)}</strong>
+              Checked in <strong>{formatInstantTime(firstStart)}</strong>
             </span>
           ) : (
             <span className="opacity-90">Not checked in yet</span>
           )}
-          {hasCheckout && (
+          {openSession && <span>· session open</span>}
+          {lastEnd && (
             <span>
-              · Checked out <strong>{formatTimeShort(log.checkout_time)}</strong>
+              · Last out <strong>{formatInstantTime(lastEnd)}</strong>
             </span>
+          )}
+          {sessions.length > 1 && (
+            <span>· {sessions.length} sessions</span>
           )}
           {log.total_hours != null && (
             <span>

@@ -1,23 +1,22 @@
 import { Clock } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
-import { type AttendanceLog } from "@/lib/attendance";
+import { type WorkSession } from "@/lib/attendance";
 import { dowOf } from "@/lib/date";
 import { formatHours } from "@/lib/time";
 
 interface Props {
-  monthLogs: AttendanceLog[];
+  sessions: WorkSession[];
   todayISO: string;
 }
 
 /**
- * Sum of total_hours for Mon → today.
- * Rows with NULL total_hours (leave / sick / missing checkin-out) don't
- * count toward the total — they're already nothing-worked.
+ * Sum of work-session durations for Mon → today, grouped by session_date
+ * (the business day a session started on — so cross-midnight sessions
+ * count toward the day they began). Open / invalid sessions don't count.
  */
-function computeWeekStats(monthLogs: AttendanceLog[], today: string) {
+function computeWeekStats(sessions: WorkSession[], today: string) {
   const dow = dowOf(today); // 0=Sun … 6=Sat
-  // Distance back to Monday: Mon→0, Tue→1, …, Sun→6.
   const daysBack = dow === 0 ? 6 : dow - 1;
   const [y, m, d] = today.split("-").map(Number);
   const start = new Date(Date.UTC(y, m - 1, d - daysBack))
@@ -25,18 +24,18 @@ function computeWeekStats(monthLogs: AttendanceLog[], today: string) {
     .slice(0, 10);
 
   let total = 0;
-  let daysCounted = 0;
-  for (const l of monthLogs) {
-    if (l.date < start || l.date > today) continue;
-    if (l.total_hours == null) continue;
-    total += Number(l.total_hours);
-    daysCounted++;
+  const days = new Set<string>();
+  for (const s of sessions) {
+    if (s.session_date < start || s.session_date > today) continue;
+    if (s.duration_hours == null) continue;
+    total += Number(s.duration_hours);
+    days.add(s.session_date);
   }
-  return { total, daysCounted, weekStartISO: start };
+  return { total, daysCounted: days.size, weekStartISO: start };
 }
 
-export function HoursThisWeekCard({ monthLogs, todayISO }: Props) {
-  const { total, daysCounted } = computeWeekStats(monthLogs, todayISO);
+export function HoursThisWeekCard({ sessions, todayISO }: Props) {
+  const { total, daysCounted } = computeWeekStats(sessions, todayISO);
 
   return (
     <Card>

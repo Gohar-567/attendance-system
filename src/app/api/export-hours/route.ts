@@ -4,6 +4,7 @@ import ExcelJS from "exceljs";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fetchHoursOverview, resolveRange } from "@/lib/admin/hours";
+import { formatInstantTime } from "@/lib/time";
 
 export const runtime = "nodejs";
 
@@ -78,6 +79,34 @@ export async function GET(req: NextRequest) {
   };
   const details = (detailRows ?? []) as unknown as DetailRow[];
 
+  // Sessions in range, grouped by employee + business day for the Details
+  // sheet's comma-separated session list.
+  const { data: sessionRows } = employeeIds.length
+    ? await admin
+        .from("work_sessions")
+        .select("employee_id, session_date, started_at, ended_at")
+        .in("employee_id", employeeIds)
+        .gte("session_date", range.fromISO)
+        .lte("session_date", range.toISO)
+        .order("started_at", { ascending: true })
+    : { data: [] };
+  type SessRow = {
+    employee_id: string;
+    session_date: string;
+    started_at: string;
+    ended_at: string | null;
+  };
+  const sessionsByKey = new Map<string, string[]>();
+  for (const s of (sessionRows ?? []) as SessRow[]) {
+    const key = `${s.employee_id}|${s.session_date}`;
+    const label = `${formatInstantTime(s.started_at)}-${
+      s.ended_at ? formatInstantTime(s.ended_at) : "open"
+    }`;
+    const list = sessionsByKey.get(key) ?? [];
+    list.push(label);
+    sessionsByKey.set(key, list);
+  }
+
   const workbook = new ExcelJS.Workbook();
   workbook.creator = "Attendance system";
   workbook.created = new Date();
@@ -117,8 +146,7 @@ export async function GET(req: NextRequest) {
     { header: "Employee", key: "employee", width: 28 },
     { header: "Team", key: "team", width: 18 },
     { header: "Type", key: "type", width: 14 },
-    { header: "Check-in", key: "checkin", width: 12 },
-    { header: "Check-out", key: "checkout", width: 12 },
+    { header: "Sessions", key: "sessions", width: 36 },
     { header: "Hours", key: "hours", width: 10 },
   ];
   detailsSheet.getRow(1).font = { bold: true };
@@ -130,8 +158,8 @@ export async function GET(req: NextRequest) {
       employee: d.employee?.full_name ?? "",
       team: d.employee?.team?.name ?? "",
       type: d.type,
-      checkin: d.checkin_time ?? "",
-      checkout: d.checkout_time ?? "",
+      sessions:
+        sessionsByKey.get(`${d.employee?.id}|${d.date}`)?.join(", ") ?? "",
       hours: round1(d.total_hours),
     });
   }

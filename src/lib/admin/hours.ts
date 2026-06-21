@@ -13,6 +13,8 @@ export interface HoursRow {
   /** Sum of total_hours / days-with-data this month. null when zero days. */
   avg_hours_per_day: number | null;
   days_worked_month: number;
+  /** Phase 9 — number of work sessions this month (flags fragmented days). */
+  sessions_month: number;
   /** Total hours in the user-selected range (drives the Excel export). */
   hours_in_range: number;
   days_in_range: number;
@@ -53,7 +55,7 @@ export async function fetchHoursOverview(
     .order("full_name");
   if (opts.teamId) empQ.eq("team_id", opts.teamId);
 
-  const [empRes, logsRes] = await Promise.all([
+  const [empRes, logsRes, sessionsRes] = await Promise.all([
     empQ,
     admin
       .from("attendance_logs")
@@ -61,6 +63,11 @@ export async function fetchHoursOverview(
       .gte("date", widestStart)
       .lte("date", widestEnd)
       .not("total_hours", "is", null),
+    admin
+      .from("work_sessions")
+      .select("employee_id, session_date")
+      .gte("session_date", monthStart)
+      .lte("session_date", monthEnd),
   ]);
 
   type Emp = {
@@ -73,6 +80,10 @@ export async function fetchHoursOverview(
 
   const employees = (empRes.data ?? []) as unknown as Emp[];
   const logs = (logsRes.data ?? []) as Log[];
+  const sessions = (sessionsRes.data ?? []) as {
+    employee_id: string;
+    session_date: string;
+  }[];
 
   const empIds = new Set(employees.map((e) => e.id));
   const byEmp = new Map<string, Log[]>();
@@ -80,6 +91,11 @@ export async function fetchHoursOverview(
     if (!empIds.has(l.employee_id)) continue;
     if (!byEmp.has(l.employee_id)) byEmp.set(l.employee_id, []);
     byEmp.get(l.employee_id)!.push(l);
+  }
+  const sessionCount = new Map<string, number>();
+  for (const s of sessions) {
+    if (!empIds.has(s.employee_id)) continue;
+    sessionCount.set(s.employee_id, (sessionCount.get(s.employee_id) ?? 0) + 1);
   }
 
   const rows: HoursRow[] = employees.map((e) => {
@@ -117,6 +133,7 @@ export async function fetchHoursOverview(
       hours_month: hoursMonth,
       avg_hours_per_day: daysMonth > 0 ? hoursMonth / daysMonth : null,
       days_worked_month: daysMonth,
+      sessions_month: sessionCount.get(e.id) ?? 0,
       hours_in_range: hoursInRange,
       days_in_range: daysInRange,
     };

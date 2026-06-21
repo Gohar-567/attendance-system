@@ -27,6 +27,7 @@ const COLUMNS: { key: string; label: string; numeric?: boolean }[] = [
   { key: "hours_month", label: "This month", numeric: true },
   { key: "avg_hours_per_day", label: "Avg/day (month)", numeric: true },
   { key: "days_worked_month", label: "Days (month)", numeric: true },
+  { key: "sessions_month", label: "# sessions", numeric: true },
 ];
 
 export function HoursOverview({
@@ -215,6 +216,9 @@ export function HoursOverview({
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {r.days_worked_month}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {r.sessions_month}
                     </td>
                   </tr>
                 ))

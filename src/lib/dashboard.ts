@@ -3,6 +3,7 @@ import {
   type AttendanceLog,
   type BalanceRow,
   type Holiday,
+  type WorkSession,
 } from "@/lib/attendance";
 import { firstOfMonthISO, lastOfMonthISO, todayISO } from "@/lib/date";
 
@@ -25,6 +26,8 @@ export interface DashboardData {
   monthEndISO: string;
   /** Logs for the selected month only. */
   monthLogs: AttendanceLog[];
+  /** Work sessions for the selected month (grouped by session_date in UI). */
+  monthSessions: WorkSession[];
   /** Holidays falling inside the selected month. */
   holidays: Holiday[];
   balance: BalanceRow | null;
@@ -79,7 +82,7 @@ export async function loadDashboardData(
   const thisMonthStart = firstOfMonthISO(today);
   const thisMonthEnd = lastOfMonthISO(today);
 
-  const [logsRes, holidaysRes, balanceRes, totalRes, todayLogRes, thisMonthLogsRes] =
+  const [logsRes, sessionsRes, holidaysRes, balanceRes, totalRes, todayLogRes, thisMonthLogsRes] =
     await Promise.all([
       admin
         .from("attendance_logs")
@@ -90,6 +93,15 @@ export async function loadDashboardData(
         .gte("date", monthStart)
         .lte("date", monthEnd)
         .order("date", { ascending: true }),
+      admin
+        .from("work_sessions")
+        .select(
+          "id, employee_id, attendance_log_id, session_date, started_at, ended_at, duration_hours, source, created_at, updated_at",
+        )
+        .eq("employee_id", employee.id)
+        .gte("session_date", monthStart)
+        .lte("session_date", monthEnd)
+        .order("started_at", { ascending: true }),
       admin
         .from("holidays")
         .select("id, date, name, is_optional")
@@ -127,6 +139,7 @@ export async function loadDashboardData(
     ]);
 
   const monthLogs = (logsRes.data ?? []) as AttendanceLog[];
+  const monthSessions = (sessionsRes.data ?? []) as WorkSession[];
   const holidays = (holidaysRes.data ?? []) as Holiday[];
   const balance = (balanceRes.data ?? null) as BalanceRow | null;
   const lifetimeCount = totalRes.count ?? 0;
@@ -148,6 +161,7 @@ export async function loadDashboardData(
     monthStartISO: monthStart,
     monthEndISO: monthEnd,
     monthLogs,
+    monthSessions,
     holidays,
     balance,
     lifetimeCount,

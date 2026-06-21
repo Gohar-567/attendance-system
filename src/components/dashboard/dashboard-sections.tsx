@@ -42,6 +42,7 @@ export function DashboardSections({
     todayISO,
     monthStartISO,
     monthLogs,
+    monthSessions,
     holidays,
     balance,
     wfhThisMonth,
@@ -73,6 +74,7 @@ export function DashboardSections({
       <TodayBanner
         todayISO={todayISO}
         log={todayLog}
+        sessions={monthSessions.filter((s) => s.session_date === todayISO)}
         isWeekend={isWeekend(todayISO)}
         holidayName={todayHoliday}
         showCheckinControls={isOwner}
@@ -81,7 +83,7 @@ export function DashboardSections({
       <BalanceCards balance={balance} wfhThisMonth={wfhThisMonth} />
 
       {viewingCurrentMonth && (
-        <HoursThisWeekCard monthLogs={monthLogs} todayISO={todayISO} />
+        <HoursThisWeekCard sessions={monthSessions} todayISO={todayISO} />
       )}
 
       <Card>
@@ -90,6 +92,7 @@ export function DashboardSections({
             monthISO={monthStartISO}
             todayISO={todayISO}
             logs={monthLogs}
+            sessions={monthSessions}
             holidays={holidays.map((h) => ({ date: h.date, name: h.name }))}
             currentUserId={viewerId}
             isHr={viewerIsHr}

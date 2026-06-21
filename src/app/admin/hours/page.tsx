@@ -28,6 +28,7 @@ const SORTABLE = new Set([
   "hours_month",
   "avg_hours_per_day",
   "days_worked_month",
+  "sessions_month",
 ]);
 
 export default async function HoursOverviewPage({ searchParams }: PageProps) {
