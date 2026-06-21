@@ -21,6 +21,10 @@ export interface MonthlyReportRow {
   hours_days: number;
   /** total_hours / hours_days; null when no hours yet. */
   avg_hours_per_day: number | null;
+  /** Phase 9 — total work sessions this month. */
+  total_sessions: number;
+  /** Phase 9 — avg sessions per day worked; null when no sessions. */
+  sessions_per_day: number | null;
 }
 
 export interface MonthlyKpis {
@@ -55,13 +59,18 @@ export async function fetchMonthlySummary(opts: {
     .order("full_name");
   if (opts.teamId) empQ.eq("team_id", opts.teamId);
 
-  const [empRes, logRes, holidaySet] = await Promise.all([
+  const [empRes, logRes, sessionRes, holidaySet] = await Promise.all([
     empQ,
     admin
       .from("attendance_logs")
       .select("employee_id, date, type, reason, total_hours")
       .gte("date", fromISO)
       .lte("date", toISO),
+    admin
+      .from("work_sessions")
+      .select("employee_id, session_date")
+      .gte("session_date", fromISO)
+      .lte("session_date", toISO),
     fetchHolidaySet(admin, fromISO, toISO),
   ]);
 
@@ -81,6 +90,10 @@ export async function fetchMonthlySummary(opts: {
 
   const employees = (empRes.data ?? []) as unknown as EmpRow[];
   const logs = (logRes.data ?? []) as LogRow[];
+  const sessionRows = (sessionRes.data ?? []) as {
+    employee_id: string;
+    session_date: string;
+  }[];
 
   const empSet = new Set(employees.map((e) => e.id));
   const stats = new Map<string, MonthlyReportRow>();
@@ -99,7 +112,21 @@ export async function fetchMonthlySummary(opts: {
       total_hours: 0,
       hours_days: 0,
       avg_hours_per_day: null,
+      total_sessions: 0,
+      sessions_per_day: null,
     });
+  }
+
+  // Sessions per employee: total count + distinct session days.
+  const sessionDays = new Map<string, Set<string>>();
+  for (const s of sessionRows) {
+    if (!empSet.has(s.employee_id)) continue;
+    const row = stats.get(s.employee_id)!;
+    row.total_sessions++;
+    if (!sessionDays.has(s.employee_id)) {
+      sessionDays.set(s.employee_id, new Set());
+    }
+    sessionDays.get(s.employee_id)!.add(s.session_date);
   }
 
   for (const l of logs) {
@@ -134,11 +161,14 @@ export async function fetchMonthlySummary(opts: {
     }
   }
 
-  const rows = [...stats.values()].map((r) => ({
-    ...r,
-    avg_hours_per_day:
-      r.hours_days > 0 ? r.total_hours / r.hours_days : null,
-  }));
+  const rows = [...stats.values()].map((r) => {
+    const days = sessionDays.get(r.employee_id)?.size ?? 0;
+    return {
+      ...r,
+      avg_hours_per_day: r.hours_days > 0 ? r.total_hours / r.hours_days : null,
+      sessions_per_day: days > 0 ? r.total_sessions / days : null,
+    };
+  });
 
   const workingDays = countWorkingDays(fromISO, toISO, holidaySet);
 

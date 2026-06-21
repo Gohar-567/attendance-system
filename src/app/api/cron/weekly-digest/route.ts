@@ -39,7 +39,7 @@ export async function GET(req: NextRequest) {
   const weekEnd = days[6];
   const appUrl = getAppUrl();
 
-  const [empRes, logRes, balRes, holidaySet] = await Promise.all([
+  const [empRes, logRes, sessionRes, balRes, holidaySet] = await Promise.all([
     admin
       .from("employees")
       .select(
@@ -53,6 +53,11 @@ export async function GET(req: NextRequest) {
       .select("employee_id, date, type, half, total_hours")
       .gte("date", weekStart)
       .lte("date", weekEnd),
+    admin
+      .from("work_sessions")
+      .select("employee_id")
+      .gte("session_date", weekStart)
+      .lte("session_date", weekEnd),
     admin
       .from("v_employee_balances")
       .select(
@@ -88,6 +93,10 @@ export async function GET(req: NextRequest) {
   const employees = (empRes.data ?? []) as Emp[];
   const logs = (logRes.data ?? []) as Log[];
   const balances = (balRes.data ?? []) as Bal[];
+  const sessionCount = new Map<string, number>();
+  for (const s of (sessionRes.data ?? []) as { employee_id: string }[]) {
+    sessionCount.set(s.employee_id, (sessionCount.get(s.employee_id) ?? 0) + 1);
+  }
 
   // Group logs and balances by employee.
   const logsByEmp = new Map<string, Map<string, Log>>();
@@ -145,6 +154,7 @@ export async function GET(req: NextRequest) {
       annualLeft: bal ? bal.annual_allowance - bal.annual_used : 0,
       weeklyHours,
       hoursDays,
+      weekSessions: sessionCount.get(e.id) ?? 0,
       appUrl,
     });
 

@@ -48,6 +48,7 @@ export function MonthlyReport({
       annual: 0,
       total_hours: 0,
       hours_days: 0,
+      total_sessions: 0,
     };
     for (const r of rows) {
       acc.present += r.present;
@@ -58,6 +59,7 @@ export function MonthlyReport({
       acc.annual += r.annual;
       acc.total_hours += r.total_hours;
       acc.hours_days += r.hours_days;
+      acc.total_sessions += r.total_sessions;
     }
     return acc;
   }, [rows]);
@@ -114,6 +116,7 @@ export function MonthlyReport({
                 <th className="px-3 py-2 font-medium text-right">Sick</th>
                 <th className="px-3 py-2 font-medium text-right">Annual</th>
                 <th className="px-3 py-2 font-medium text-right">Avg hrs/day</th>
+                <th className="px-3 py-2 font-medium text-right">Sess/day</th>
                 <th className="px-3 py-2 font-medium text-right">Total hrs</th>
               </tr>
             </thead>
@@ -121,7 +124,7 @@ export function MonthlyReport({
               {rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={11}
                     className="px-3 py-12 text-center text-sm text-muted-foreground"
                   >
                     No active employees in this filter.
@@ -178,6 +181,11 @@ export function MonthlyReport({
                           )}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">
+                      {r.sessions_per_day == null
+                        ? "—"
+                        : (Math.round(r.sessions_per_day * 10) / 10).toFixed(1)}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
                       {r.total_hours > 0
                         ? (Math.round(r.total_hours * 10) / 10).toFixed(1)
                         : "—"}
@@ -216,6 +224,9 @@ export function MonthlyReport({
                           10
                         ).toFixed(1)
                       : "—"}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {totals.total_sessions}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {totals.total_hours > 0

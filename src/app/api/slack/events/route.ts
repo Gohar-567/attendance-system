@@ -11,11 +11,17 @@ import {
 } from "@/lib/slack/identity";
 import { recordParse, upsertAttendanceLog } from "@/lib/slack/log";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { todayISO } from "@/lib/date";
+import { todayISO, toISODate } from "@/lib/date";
+import { formatInstantTime, instantToLocalInput } from "@/lib/time";
+import { businessDate, karachiInstant } from "@/lib/business-day";
 import {
-  currentKarachiTime,
-  formatTimeShort,
-} from "@/lib/time";
+  findOpenSession,
+  isStaleOpenSession,
+  markSessionUnclosed,
+  openSession,
+  closeSession,
+} from "@/lib/sessions";
+import type { AttendanceType } from "@/lib/attendance";
 
 export const runtime = "nodejs";
 
@@ -255,6 +261,12 @@ async function processLine(args: {
   });
 }
 
+/** "YYYY-MM-DD" + 1 day. */
+function addOneDay(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
 async function handleCheckout(args: {
   employeeId: string;
   slackUserId: string;
@@ -266,19 +278,9 @@ async function handleCheckout(args: {
   time: string | null;
 }): Promise<boolean> {
   const admin = createAdminClient();
-  const { data: existing } = await admin
-    .from("attendance_logs")
-    .select("id, type, checkin_time, checkout_time")
-    .eq("employee_id", args.employeeId)
-    .eq("date", args.date)
-    .maybeSingle<{
-      id: string;
-      type: string;
-      checkin_time: string | null;
-      checkout_time: string | null;
-    }>();
+  const open = await findOpenSession(admin, args.employeeId);
 
-  if (!existing) {
+  if (!open) {
     const { alreadyProcessed } = await recordParse({
       slackUserId: args.slackUserId,
       channelId: args.channelId,
@@ -292,38 +294,51 @@ async function handleCheckout(args: {
     if (alreadyProcessed) return false;
     await dmSlackUser(
       args.slackUserId,
-      ":wave: You haven't checked in today. Use `/attendance` to set both times.",
+      ":wave: I don't see any open session. Did you forget to check in?",
     );
     return false;
   }
 
-  if (existing.checkout_time) {
+  // Compose the checkout instant. With a parsed time, roll to the next
+  // calendar day when it falls before the start's time-of-day (the normal
+  // cross-midnight case). Without a time, use now.
+  let endedAt: string;
+  if (args.time) {
+    const startLocal = instantToLocalInput(open.started_at); // YYYY-MM-DDThh:mm
+    const startDate = startLocal.slice(0, 10);
+    const startHHMM = startLocal.slice(11, 16);
+    const endHHMM = args.time.slice(0, 5);
+    const endDate = endHHMM < startHHMM ? addOneDay(startDate) : startDate;
+    endedAt = karachiInstant(endDate, args.time);
+  } else {
+    endedAt = new Date().toISOString();
+  }
+
+  const result = await closeSession(open.id, open.started_at, endedAt);
+  if (!result.ok) {
     const { alreadyProcessed } = await recordParse({
       slackUserId: args.slackUserId,
       channelId: args.channelId,
       messageTs: args.lineTs,
       rawText: args.lineText,
       method: "regex",
-      parsedDate: args.date,
+      parsedDate: open.session_date,
       parsedReason: parsedReasonWithTime(args.parsedName, args.time),
       confidence: 0.95,
-      attendanceLogId: existing.id,
+      attendanceLogId: open.attendance_log_id,
     });
     if (alreadyProcessed) return false;
-    await dmSlackUser(
-      args.slackUserId,
-      `:information_source: You already checked out at *${formatTimeShort(existing.checkout_time)}*. Edit the entry on the dashboard if it's wrong.`,
-    );
-    return false;
-  }
-
-  const checkoutTime = args.time ?? currentKarachiTime();
-  const { error } = await admin
-    .from("attendance_logs")
-    .update({ checkout_time: checkoutTime, status: "confirmed" })
-    .eq("id", existing.id);
-  if (error) {
-    console.error("checkout update failed", error);
+    if (result.reason === "too_long") {
+      await dmSlackUser(
+        args.slackUserId,
+        ":warning: This session is over 16 hours. Please check your check-in time or contact HR.",
+      );
+    } else {
+      await dmSlackUser(
+        args.slackUserId,
+        ":warning: I couldn't close that session — please check the times on the dashboard.",
+      );
+    }
     return false;
   }
 
@@ -333,10 +348,10 @@ async function handleCheckout(args: {
     messageTs: args.lineTs,
     rawText: args.lineText,
     method: "regex",
-    parsedDate: args.date,
-    parsedReason: parsedReasonWithTime(args.parsedName, checkoutTime),
+    parsedDate: open.session_date,
+    parsedReason: parsedReasonWithTime(args.parsedName, args.time),
     confidence: 0.95,
-    attendanceLogId: existing.id,
+    attendanceLogId: open.attendance_log_id,
   });
   return !alreadyProcessed;
 }
@@ -350,26 +365,26 @@ async function handleCheckinOrInfo(args: {
   date: string;
   parsedName: string;
   intent: "checkin" | "info_only";
-  type: import("@/lib/attendance").AttendanceType;
+  type: AttendanceType;
   half: import("@/lib/attendance").AttendanceHalf;
   time: string | null;
   confidence: number;
 }): Promise<boolean> {
   const admin = createAdminClient();
-  const { data: existing } = await admin
-    .from("attendance_logs")
-    .select("id, type, checkin_time, checkout_time")
-    .eq("employee_id", args.employeeId)
-    .eq("date", args.date)
-    .maybeSingle<{
-      id: string;
-      type: string;
-      checkin_time: string | null;
-      checkout_time: string | null;
-    }>();
 
-  // Already checked in → DM "you're already checked in" and don't overwrite.
-  if (args.intent === "checkin" && existing?.checkin_time) {
+  // ---- info_only (wfh/sick/leave/half, no session) -------------------
+  if (args.intent === "info_only") {
+    const attendanceLogId = await upsertAttendanceLog({
+      employeeId: args.employeeId,
+      date: args.date,
+      type: args.type,
+      half: args.half,
+      reason: args.lineText,
+      source: "slack",
+      status: "auto_logged",
+      slackMessageTs: args.lineTs,
+      createdBy: args.employeeId,
+    });
     const { alreadyProcessed } = await recordParse({
       slackUserId: args.slackUserId,
       channelId: args.channelId,
@@ -379,34 +394,84 @@ async function handleCheckinOrInfo(args: {
       parsedType: args.type,
       parsedHalf: args.half,
       parsedDate: args.date,
+      parsedReason: args.parsedName,
+      confidence: args.confidence,
+      attendanceLogId,
+    });
+    return !alreadyProcessed;
+  }
+
+  // ---- checkin → open a work session --------------------------------
+  // Anchor the started_at to now's Karachi wall-clock date + parsed time.
+  const nowKarachiDate = toISODate(new Date());
+  const startedAt = args.time
+    ? karachiInstant(nowKarachiDate, args.time)
+    : new Date().toISOString();
+  const sessionDate = businessDate(startedAt);
+
+  // Refuse to start a session on a leave/sick day.
+  const { data: dayLog } = await admin
+    .from("attendance_logs")
+    .select("id, type")
+    .eq("employee_id", args.employeeId)
+    .eq("date", sessionDate)
+    .maybeSingle<{ id: string; type: string }>();
+  if (dayLog && ["full_leave", "sick", "holiday"].includes(dayLog.type)) {
+    const { alreadyProcessed } = await recordParse({
+      slackUserId: args.slackUserId,
+      channelId: args.channelId,
+      messageTs: args.lineTs,
+      rawText: args.lineText,
+      method: "regex",
+      parsedType: args.type,
+      parsedDate: sessionDate,
       parsedReason: parsedReasonWithTime(args.parsedName, args.time),
       confidence: args.confidence,
-      attendanceLogId: existing.id,
+      attendanceLogId: dayLog.id,
     });
     if (alreadyProcessed) return false;
     await dmSlackUser(
       args.slackUserId,
-      `:information_source: You're already checked in at *${formatTimeShort(existing.checkin_time)}*. Edit the entry on the dashboard if it's wrong.`,
+      ":palm_tree: You're marked on leave today. Cancel the leave first if you're actually working.",
     );
     return false;
   }
 
-  const checkinToSet =
-    args.intent === "checkin" ? args.time ?? currentKarachiTime() : null;
+  // Block a new check-in while a prior session is still open (unless it's
+  // stale > 7 days — then tag it 'unclosed' for HR and proceed).
+  const open = await findOpenSession(admin, args.employeeId);
+  if (open) {
+    if (isStaleOpenSession(open)) {
+      await markSessionUnclosed(open.id);
+    } else {
+      const { alreadyProcessed } = await recordParse({
+        slackUserId: args.slackUserId,
+        channelId: args.channelId,
+        messageTs: args.lineTs,
+        rawText: args.lineText,
+        method: "regex",
+        parsedType: args.type,
+        parsedDate: sessionDate,
+        parsedReason: parsedReasonWithTime(args.parsedName, args.time),
+        confidence: args.confidence,
+        attendanceLogId: open.attendance_log_id,
+      });
+      if (alreadyProcessed) return false;
+      await dmSlackUser(
+        args.slackUserId,
+        `:information_source: You have an open session from ${open.session_date} ${formatInstantTime(open.started_at)} that wasn't closed. Please add a check-out time via the dashboard before starting a new session.`,
+      );
+      return false;
+    }
+  }
 
-  const attendanceLogId = await upsertAttendanceLog({
+  const result = await openSession({
     employeeId: args.employeeId,
-    date: args.date,
+    startedAt,
     type: args.type,
     half: args.half,
-    reason: args.lineText,
     source: "slack",
-    status: "auto_logged",
-    slackMessageTs: args.lineTs,
     createdBy: args.employeeId,
-    // Only send checkin_time when we're actually setting it. Sending
-    // null on info_only would erase any existing checkin.
-    ...(checkinToSet ? { checkinTime: checkinToSet } : {}),
   });
 
   const { alreadyProcessed } = await recordParse({
@@ -417,10 +482,10 @@ async function handleCheckinOrInfo(args: {
     method: "regex",
     parsedType: args.type,
     parsedHalf: args.half,
-    parsedDate: args.date,
-    parsedReason: parsedReasonWithTime(args.parsedName, checkinToSet),
+    parsedDate: sessionDate,
+    parsedReason: parsedReasonWithTime(args.parsedName, args.time),
     confidence: args.confidence,
-    attendanceLogId,
+    attendanceLogId: result?.attendanceLogId ?? null,
   });
   return !alreadyProcessed;
 }

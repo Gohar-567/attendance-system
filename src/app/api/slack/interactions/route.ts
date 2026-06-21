@@ -9,6 +9,7 @@ import {
   dmSlackUser,
 } from "@/lib/slack/identity";
 import { recordParse, upsertAttendanceLog } from "@/lib/slack/log";
+import { openSession } from "@/lib/sessions";
 import {
   ACTION_IDS,
   ATTENDANCE_MODAL_CALLBACK,
@@ -378,11 +379,7 @@ async function handleNudgeClick(payload: SlackInteractionPayload) {
 
   // action_id format: nudge:<type>:<date>
   const parts = action.action_id.split(":");
-  const type = parts[1] as
-    | "present"
-    | "wfh"
-    | "half_leave"
-    | "sick";
+  const type = parts[1] as "present" | "wfh" | "half_leave" | "sick";
   const date = parts[2];
   if (!type || !date) return;
 
@@ -392,15 +389,44 @@ async function handleNudgeClick(payload: SlackInteractionPayload) {
     return;
   }
 
-  await upsertAttendanceLog({
-    employeeId: employee.id,
-    date,
-    type,
-    half: type === "half_leave" ? "first_half" : "full",
-    source: "slack",
-    status: "confirmed",
-    createdBy: employee.id,
-  });
+  const admin = createAdminClient();
+
+  // "At office" / "WFH" → create the day's row AND open a work session
+  // (this was the Faizan bug: previously only a confirmation, no session).
+  // "Half day" / "Sick" → set the type only, no session.
+  if (type === "present" || type === "wfh") {
+    const result = await openSession({
+      employeeId: employee.id,
+      startedAt: new Date().toISOString(),
+      type,
+      source: "nudge_button",
+      createdBy: employee.id,
+    });
+    await admin.from("audit_log").insert({
+      actor_id: employee.id,
+      action: "nudge_button_logged",
+      target_type: "work_session",
+      target_id: result?.sessionId ?? null,
+      details: { type, date, via: "nudge_button" },
+    });
+  } else {
+    const attendanceLogId = await upsertAttendanceLog({
+      employeeId: employee.id,
+      date,
+      type,
+      half: type === "half_leave" ? "first_half" : "full",
+      source: "slack",
+      status: "confirmed",
+      createdBy: employee.id,
+    });
+    await admin.from("audit_log").insert({
+      actor_id: employee.id,
+      action: "nudge_button_logged",
+      target_type: "attendance_log",
+      target_id: attendanceLogId,
+      details: { type, date, via: "nudge_button" },
+    });
+  }
 
   // Edit the original DM so the buttons disappear and the choice is shown.
   if (channelId && messageTs) {

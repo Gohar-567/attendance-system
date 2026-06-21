@@ -79,6 +79,8 @@ export interface DigestData {
   weeklyHours: number;
   /** Days the user has total_hours data for. */
   hoursDays: number;
+  /** Phase 9 — total work sessions across the week. */
+  weekSessions: number;
   appUrl: string;
 }
 
@@ -137,7 +139,7 @@ export function buildDigestBlocks(d: DigestData) {
             type: "section",
             text: {
               type: "mrkdwn",
-              text: hoursSentence(d.weeklyHours, d.hoursDays),
+              text: hoursSentence(d.weeklyHours, d.hoursDays, d.weekSessions),
             },
           },
         ]
@@ -154,12 +156,11 @@ export function buildDigestBlocks(d: DigestData) {
   ];
 }
 
-function hoursSentence(total: number, days: number): string {
+function hoursSentence(total: number, days: number, sessions: number): string {
   const totalStr = (Math.round(total * 10) / 10).toFixed(1);
-  const avg = (Math.round((total / days) * 10) / 10).toFixed(1);
-  return `:clock4: You worked *${totalStr} hours* this week (${days} day${
+  return `:clock4: You worked *${totalStr} hours* this week across *${days} day${
     days === 1 ? "" : "s"
-  }, avg *${avg} hrs/day*).`;
+  }*, with *${sessions} work session${sessions === 1 ? "" : "s"}* total.`;
 }
 
 function escapeMrkdwn(s: string): string {

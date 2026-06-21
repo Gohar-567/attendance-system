@@ -64,6 +64,43 @@ export interface AttendanceLog {
   total_hours: number | null;
 }
 
+/**
+ * Phase 9 — one continuous work period. Hours come from the sum of these,
+ * not from attendance_logs.checkin_time/checkout_time (now deprecated).
+ * A session can cross midnight; session_date anchors it to the business
+ * day it STARTED on (9 AM Asia/Karachi cutoff — see lib/business-day.ts).
+ */
+export interface WorkSession {
+  id: string;
+  employee_id: string;
+  attendance_log_id: string | null;
+  /** Business day (YYYY-MM-DD) this session belongs to. */
+  session_date: string;
+  /** TIMESTAMPTZ ISO string. */
+  started_at: string;
+  /** TIMESTAMPTZ ISO string, or null while the session is open. */
+  ended_at: string | null;
+  /** Computed by Postgres: ended−started in hours, or null when open /
+   *  invalid / > 16h. */
+  duration_hours: number | null;
+  source: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Sum the countable durations of a set of sessions (open / NULL skipped). */
+export function sumSessionHours(sessions: WorkSession[]): number {
+  return sessions.reduce(
+    (acc, s) => acc + (s.duration_hours != null ? Number(s.duration_hours) : 0),
+    0,
+  );
+}
+
+/** True when the day's hours come from sessions (vs. a fixed/leave value). */
+export function isSessionType(type: AttendanceType): boolean {
+  return type === "present" || type === "wfh" || type === "ewd";
+}
+
 export interface Holiday {
   id: string;
   date: string;

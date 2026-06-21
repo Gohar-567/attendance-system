@@ -67,12 +67,17 @@ export function buildNudgeAcknowledgedBlocks(opts: {
   date: string;
   type: string;
 }) {
+  // "At office" / "WFH" open a live work session — remind them to check out.
+  const opensSession = opts.type === "present" || opts.type === "wfh";
+  const tail = opensSession
+    ? ` You're checked in — reply \`checkout\` or post in #attendance when you finish.`
+    : "";
   return [
     {
       type: "section",
       text: {
         type: "mrkdwn",
-        text: `:white_check_mark: Logged for *${opts.fullName}* on *${opts.date}*: *${opts.type.replace("_", " ")}*.`,
+        text: `:white_check_mark: Logged for *${opts.fullName}* on *${opts.date}*: *${opts.type.replace("_", " ")}*.${tail}`,
       },
     },
   ];
