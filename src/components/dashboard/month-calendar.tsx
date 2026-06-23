@@ -30,7 +30,7 @@ import {
   type WorkSession,
 } from "@/lib/attendance";
 import { firstOfMonthISO, isWeekend, longDate, monthGrid, monthLabel } from "@/lib/date";
-import { durationHours, MAX_SESSION_HOURS } from "@/lib/business-day";
+import { durationHours, MAX_SESSION_HOURS, todayBusinessDate } from "@/lib/business-day";
 import {
   formatHours,
   formatInstantTime,
@@ -38,7 +38,7 @@ import {
   localInputToInstant,
 } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { saveDayAction } from "@/app/actions/sessions";
+import { saveDayAction, markSessionsIncompleteAction } from "@/app/actions/sessions";
 import { deleteAttendanceAction } from "@/app/actions/attendance";
 import type { DaySessionInput } from "@/app/actions/types";
 
@@ -340,7 +340,14 @@ function DayDetailDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {mode === "view" && log && <ViewBody log={log} sessions={sessions} />}
+        {mode === "view" && log && (
+          <ViewBody
+            log={log}
+            sessions={sessions}
+            canMarkIncomplete={canEdit && !!date && date < todayBusinessDate()}
+            onChanged={onClose}
+          />
+        )}
 
         {mode === "edit" && date && (
           <DayForm
@@ -390,10 +397,19 @@ function DayDetailDialog({
 function ViewBody({
   log,
   sessions,
+  canMarkIncomplete,
+  onChanged,
 }: {
   log: AttendanceLog;
   sessions: WorkSession[];
+  /** True when this is a prior business day the viewer may edit — enables
+   *  the "Mark as incomplete" action for any lingering open session. */
+  canMarkIncomplete: boolean;
+  onChanged: () => void;
 }) {
+  const openIds = sessions.filter((s) => s.ended_at == null).map((s) => s.id);
+  const showMarkIncomplete = canMarkIncomplete && openIds.length > 0;
+
   return (
     <div className="space-y-3 text-sm">
       <Field label="Type" value={TYPE_LABEL[log.type]} />
@@ -430,6 +446,9 @@ function ViewBody({
                 </li>
               ))}
             </ul>
+          )}
+          {showMarkIncomplete && (
+            <MarkIncompleteButton sessionIds={openIds} onDone={onChanged} />
           )}
         </div>
       )}
@@ -797,6 +816,41 @@ function ReasonField({
         placeholder="A short note for context"
       />
     </div>
+  );
+}
+
+function MarkIncompleteButton({
+  sessionIds,
+  onDone,
+}: {
+  sessionIds: string[];
+  onDone: () => void;
+}) {
+  const [pending, startTransition] = useTransition();
+
+  function handleClick() {
+    startTransition(async () => {
+      const res = await markSessionsIncompleteAction(sessionIds);
+      if (!res.ok) {
+        toast.error(res.error ?? "Couldn't update");
+        return;
+      }
+      toast.success("Marked as incomplete");
+      onDone();
+    });
+  }
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={handleClick}
+      disabled={pending}
+      className="mt-1"
+    >
+      {pending ? "Marking…" : "Mark as incomplete"}
+    </Button>
   );
 }
 

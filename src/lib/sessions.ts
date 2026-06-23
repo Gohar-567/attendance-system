@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { businessDate, durationHours, hoursSince, MAX_SESSION_HOURS, OPEN_SESSION_STALE_DAYS } from "@/lib/business-day";
+import { businessDate, durationHours, MAX_SESSION_HOURS } from "@/lib/business-day";
 import type { AttendanceHalf, AttendanceType } from "@/lib/attendance";
 
 /** Minimal shape of an open session we care about. */
@@ -31,10 +31,56 @@ export async function findOpenSession(
   return data ?? null;
 }
 
-/** True when an open session is stale enough (> 7 days) to stop blocking
- *  a fresh check-in — it gets tagged source='unclosed' for HR instead. */
-export function isStaleOpenSession(s: OpenSession): boolean {
-  return hoursSince(s.started_at) > OPEN_SESSION_STALE_DAYS * 24;
+export interface OpenSessionResolution {
+  /** A still-open session from the SAME business day as now → block the
+   *  new check-in (they're trying to check in twice without closing). */
+  blocked: OpenSession | null;
+  /** Open sessions from PRIOR business days, auto-tagged source='unclosed'
+   *  so the new check-in can proceed. */
+  tagged: OpenSession[];
+}
+
+/**
+ * Decide what to do with an employee's open sessions when they check in.
+ *
+ * Phase 9.1: the block threshold is "an open session from the same business
+ * day as now" (not "any open session < 7 days" — that trapped people behind
+ * legacy pre-Phase-9 opens). Prior-day opens are tagged incomplete on the
+ * fly and don't block.
+ *
+ * `nowBusinessDate` should be businessDate(now()). Tagging happens here as a
+ * side effect; the caller is responsible for the DM / proceed.
+ */
+export async function resolveOpenSessionsForCheckin(
+  admin: SupabaseClient,
+  employeeId: string,
+  nowBusinessDate: string,
+): Promise<OpenSessionResolution> {
+  const { data } = await admin
+    .from("work_sessions")
+    .select("id, started_at, attendance_log_id, session_date")
+    .eq("employee_id", employeeId)
+    .is("ended_at", null)
+    .order("started_at", { ascending: true });
+  const open = (data ?? []) as OpenSession[];
+
+  const blocked = open.find((s) => s.session_date === nowBusinessDate) ?? null;
+  if (blocked) {
+    // Same-day open session wins — block, leave everything as-is.
+    return { blocked, tagged: [] };
+  }
+
+  const tagged = open.filter((s) => s.session_date !== nowBusinessDate);
+  if (tagged.length > 0) {
+    await admin
+      .from("work_sessions")
+      .update({ source: "unclosed" })
+      .in(
+        "id",
+        tagged.map((s) => s.id),
+      );
+  }
+  return { blocked: null, tagged };
 }
 
 /**
@@ -158,13 +204,4 @@ export async function closeSession(
     .eq("id", sessionId);
   if (error) return { ok: false, reason: "error" };
   return { ok: true, durationHours: dur };
-}
-
-/** Tag a stale open session for HR review without closing it. */
-export async function markSessionUnclosed(sessionId: string): Promise<void> {
-  const admin = createAdminClient();
-  await admin
-    .from("work_sessions")
-    .update({ source: "unclosed" })
-    .eq("id", sessionId);
 }
