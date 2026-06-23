@@ -6,8 +6,10 @@
 > Four decisions in the PR override/refine this doc: (1) the attendance day
 > runs 9 AM → next 9 AM Asia/Karachi (`businessDate()`); (2) sessions may
 > cross midnight, capped at 16h; (3) no pre-9-AM shift handling; (4) no
-> auto-recovery of open sessions — a new check-in is blocked while a prior
-> session < 7 days old is still open. The legacy schema stored hours as
+> auto-recovery of open sessions — a new check-in is blocked only when an
+> open session from the SAME business day exists; open sessions from prior
+> business days are auto-tagged source='unclosed' and don't block (Phase
+> 9.1, supersedes the earlier <7-day rule). The legacy schema stored hours as
 > `checkin_time`/`checkout_time` (TIME) rather than the `checkin_at`/
 > `checkout_at` TIMESTAMPTZ columns this doc assumed, so the migration
 > backfills sessions by composing `date + time` at Asia/Karachi.

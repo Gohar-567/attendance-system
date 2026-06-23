@@ -25,10 +25,6 @@ export const BUSINESS_DAY_START_HOUR = 9;
 /** Max length of a single work session, in hours. Longer = rejected. */
 export const MAX_SESSION_HOURS = 16;
 
-/** A prior open session older than this (days) no longer blocks a new
- *  check-in; instead the stale one is tagged source='unclosed' for HR. */
-export const OPEN_SESSION_STALE_DAYS = 7;
-
 /** Karachi calendar-date + hour for an instant, as integers/strings. */
 function karachiParts(d: Date): { date: string; hour: number } {
   const parts = new Intl.DateTimeFormat("en-CA", {
