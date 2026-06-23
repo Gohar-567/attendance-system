@@ -13,11 +13,10 @@ import { recordParse, upsertAttendanceLog } from "@/lib/slack/log";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { todayISO, toISODate } from "@/lib/date";
 import { formatInstantTime, instantToLocalInput } from "@/lib/time";
-import { businessDate, karachiInstant } from "@/lib/business-day";
+import { businessDate, karachiInstant, todayBusinessDate } from "@/lib/business-day";
 import {
   findOpenSession,
-  isStaleOpenSession,
-  markSessionUnclosed,
+  resolveOpenSessionsForCheckin,
   openSession,
   closeSession,
 } from "@/lib/sessions";
@@ -126,8 +125,14 @@ async function handleAttendanceMessage(opts: {
   const { slackUserId, channelId, messageTs, rawText } = opts;
   const date = todayISO();
 
+  // Optimistic ✅ FIRST, before any DB work, so Slack's 3s webhook deadline
+  // is comfortably met. If the message turns out to be unparseable (or from
+  // an unknown user), we remove the reaction below. DM behaviour unchanged.
+  await safeReact(channelId, messageTs);
+
   const employee = await resolveEmployeeBySlackId(slackUserId);
   if (!employee) {
+    await safeUnreact(channelId, messageTs);
     await notifyUnknownUser(slackUserId);
     await recordParse({
       slackUserId,
@@ -165,7 +170,8 @@ async function handleAttendanceMessage(opts: {
     if (ok) anySuccess = true;
   }
 
-  if (anySuccess) await safeReact(channelId, messageTs);
+  // Nothing landed (noise / duplicate / sub-threshold) → undo the ✅.
+  if (!anySuccess) await safeUnreact(channelId, messageTs);
 }
 
 /**
@@ -437,32 +443,34 @@ async function handleCheckinOrInfo(args: {
     return false;
   }
 
-  // Block a new check-in while a prior session is still open (unless it's
-  // stale > 7 days — then tag it 'unclosed' for HR and proceed).
-  const open = await findOpenSession(admin, args.employeeId);
-  if (open) {
-    if (isStaleOpenSession(open)) {
-      await markSessionUnclosed(open.id);
-    } else {
-      const { alreadyProcessed } = await recordParse({
-        slackUserId: args.slackUserId,
-        channelId: args.channelId,
-        messageTs: args.lineTs,
-        rawText: args.lineText,
-        method: "regex",
-        parsedType: args.type,
-        parsedDate: sessionDate,
-        parsedReason: parsedReasonWithTime(args.parsedName, args.time),
-        confidence: args.confidence,
-        attendanceLogId: open.attendance_log_id,
-      });
-      if (alreadyProcessed) return false;
-      await dmSlackUser(
-        args.slackUserId,
-        `:information_source: You have an open session from ${open.session_date} ${formatInstantTime(open.started_at)} that wasn't closed. Please add a check-out time via the dashboard before starting a new session.`,
-      );
-      return false;
-    }
+  // Phase 9.1 open-session handling: block only when there's already an
+  // open session from the SAME business day as now (a genuine double
+  // check-in). Open sessions from PRIOR business days are auto-tagged
+  // 'unclosed' so legacy/forgotten opens don't trap the user.
+  const resolution = await resolveOpenSessionsForCheckin(
+    admin,
+    args.employeeId,
+    todayBusinessDate(),
+  );
+  if (resolution.blocked) {
+    const { alreadyProcessed } = await recordParse({
+      slackUserId: args.slackUserId,
+      channelId: args.channelId,
+      messageTs: args.lineTs,
+      rawText: args.lineText,
+      method: "regex",
+      parsedType: args.type,
+      parsedDate: sessionDate,
+      parsedReason: parsedReasonWithTime(args.parsedName, args.time),
+      confidence: args.confidence,
+      attendanceLogId: resolution.blocked.attendance_log_id,
+    });
+    if (alreadyProcessed) return false;
+    await dmSlackUser(
+      args.slackUserId,
+      `:information_source: You already have an open session from today (started ${formatInstantTime(resolution.blocked.started_at)}). Please check out before starting a new session.`,
+    );
+    return false;
   }
 
   const result = await openSession({
@@ -487,6 +495,17 @@ async function handleCheckinOrInfo(args: {
     confidence: args.confidence,
     attendanceLogId: result?.attendanceLogId ?? null,
   });
+
+  // Tell them about any prior-day session we marked incomplete on the way in.
+  if (!alreadyProcessed && resolution.tagged.length > 0) {
+    const taggedDate =
+      resolution.tagged[resolution.tagged.length - 1].session_date;
+    await dmSlackUser(
+      args.slackUserId,
+      `:information_source: Heads up — you had an unclosed session from ${taggedDate}. We've marked it as incomplete. New check-in recorded.`,
+    );
+  }
+
   return !alreadyProcessed;
 }
 
@@ -499,6 +518,18 @@ async function safeReact(channelId: string, messageTs: string) {
     });
   } catch (err) {
     console.warn("reactions.add failed", err);
+  }
+}
+
+async function safeUnreact(channelId: string, messageTs: string) {
+  try {
+    await slackClient().reactions.remove({
+      channel: channelId,
+      timestamp: messageTs,
+      name: "white_check_mark",
+    });
+  } catch (err) {
+    console.warn("reactions.remove failed", err);
   }
 }
 

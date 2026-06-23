@@ -219,3 +219,63 @@ export async function saveDayAction(input: SaveDayInput): Promise<ActionResult> 
   revalidatePath(`/admin/employees/${employeeId}`);
   return { ok: true };
 }
+
+/**
+ * Mark one or more open sessions as incomplete (source='unclosed', ended_at
+ * left NULL). Used by the Day Detail modal's "Mark as incomplete" button for
+ * an open session lingering from a prior business day. Owner or HR only.
+ */
+export async function markSessionsIncompleteAction(
+  sessionIds: string[],
+): Promise<ActionResult> {
+  const auth = await getActor();
+  if (!auth.ok) return auth;
+  if (sessionIds.length === 0) return { ok: true };
+
+  const admin = createAdminClient();
+  const { data: sessions } = await admin
+    .from("work_sessions")
+    .select("id, employee_id, ended_at")
+    .in("id", sessionIds);
+
+  const rows = (sessions ?? []) as {
+    id: string;
+    employee_id: string;
+    ended_at: string | null;
+  }[];
+  if (rows.length === 0) return { ok: false, error: "Session not found" };
+
+  // Authorize: actor must own every session, or be HR/admin.
+  if (!isHr(auth.role) && rows.some((r) => r.employee_id !== auth.userId)) {
+    return { ok: false, error: "Not authorized" };
+  }
+
+  // Only touch sessions that are still open — never reopen a closed one.
+  const openIds = rows.filter((r) => r.ended_at == null).map((r) => r.id);
+  if (openIds.length === 0) {
+    return { ok: false, error: "That session is already closed" };
+  }
+
+  const { error } = await admin
+    .from("work_sessions")
+    .update({ source: "unclosed" })
+    .in("id", openIds);
+  if (error) return { ok: false, error: error.message };
+
+  const employeeId = rows[0].employee_id;
+  await admin.from("audit_log").insert({
+    actor_id: auth.userId,
+    action: "session_marked_incomplete",
+    target_type: "work_session",
+    target_id: openIds[0],
+    details: {
+      session_ids: openIds,
+      ...(employeeId !== auth.userId ? { target_employee_id: employeeId } : null),
+    },
+  });
+
+  revalidatePath("/");
+  revalidatePath("/history");
+  revalidatePath(`/admin/employees/${employeeId}`);
+  return { ok: true };
+}

@@ -5,10 +5,10 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { todayISO } from "@/lib/date";
+import { todayBusinessDate } from "@/lib/business-day";
 import {
   findOpenSession,
-  isStaleOpenSession,
-  markSessionUnclosed,
+  resolveOpenSessionsForCheckin,
   openSession,
   closeSession,
 } from "@/lib/sessions";
@@ -126,16 +126,18 @@ export async function checkInNowAction(): Promise<ActionResult> {
   if (!auth.ok) return auth;
 
   const admin = createAdminClient();
-  const existingOpen = await findOpenSession(admin, auth.userId);
-  if (existingOpen) {
-    if (isStaleOpenSession(existingOpen)) {
-      await markSessionUnclosed(existingOpen.id);
-    } else {
-      return {
-        ok: false,
-        error: `You have an open session from ${existingOpen.session_date} at ${formatInstantTime(existingOpen.started_at)}. Add a check-out time before starting a new session.`,
-      };
-    }
+  // Block only on a same-business-day open session; prior-day opens are
+  // auto-tagged 'unclosed' and don't trap the user (Phase 9.1).
+  const resolution = await resolveOpenSessionsForCheckin(
+    admin,
+    auth.userId,
+    todayBusinessDate(),
+  );
+  if (resolution.blocked) {
+    return {
+      ok: false,
+      error: `You already have an open session from today (started ${formatInstantTime(resolution.blocked.started_at)}). Check out before starting a new session.`,
+    };
   }
 
   const result = await openSession({
