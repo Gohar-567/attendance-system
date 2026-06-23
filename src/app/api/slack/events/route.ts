@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 
 import { verifySlackSignature } from "@/lib/slack/signature";
 import { slackClient } from "@/lib/slack/client";
@@ -92,17 +92,27 @@ export async function POST(req: NextRequest) {
 
   if (!ev.user || !ev.text) return NextResponse.json({ ok: true });
 
-  try {
-    await handleAttendanceMessage({
-      slackUserId: ev.user,
-      channelId: ev.channel,
-      messageTs: ev.ts,
-      rawText: ev.text,
-    });
-  } catch (err) {
-    console.error("slack events handler failed", err);
-  }
-  return NextResponse.json({ ok: true });
+  // Slack enforces a 3s webhook deadline and retries on timeout — and a
+  // retried message double-fires reactions.add ("already_reacted"). The
+  // handler makes up to ~6 sequential Slack + DB calls which can exceed
+  // that, so we ACK Slack immediately and run all parsing + DB work in the
+  // background via after() (Vercel keeps the invocation alive until it
+  // settles). Errors are logged, never swallowed silently.
+  const job = {
+    slackUserId: ev.user,
+    channelId: ev.channel,
+    messageTs: ev.ts,
+    rawText: ev.text,
+  };
+  after(async () => {
+    try {
+      await handleAttendanceMessage(job);
+    } catch (err) {
+      console.error("slack events background handler failed", err);
+    }
+  });
+
+  return new Response(null, { status: 200 });
 }
 
 /**
