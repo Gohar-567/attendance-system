@@ -15,6 +15,7 @@ import {
   todayBusinessDate,
   MAX_SESSION_HOURS,
 } from "@/lib/business-day";
+import { syncAttendanceLeaveForDay } from "@/lib/leave/attendance-sync";
 import type { ActionResult, SaveDayInput, DaySessionInput } from "./types";
 
 async function getActor(): Promise<
@@ -195,6 +196,34 @@ export async function saveDayAction(input: SaveDayInput): Promise<ActionResult> 
         source,
       });
       if (error) return { ok: false, error: error.message };
+    }
+  }
+
+  // Keep leave_requests (the balance source of truth) in step with the
+  // day's type: Sick / Half consume a balance, Present/WFH/EWD don't. This
+  // is what makes the Sick / Casual cards move for modal-logged leave.
+  //
+  // Skip days already backed by a real leave_request (source='leave_request'
+  // on the attendance row): that request already consumes the balance, so
+  // syncing here would double-count. Those are edited via the leave flow.
+  if (existingLog?.source !== "leave_request") {
+    try {
+      await syncAttendanceLeaveForDay(admin, {
+        employeeId,
+        date: input.date,
+        type: input.type,
+        reason,
+        actorId: auth.userId,
+      });
+    } catch (err) {
+      // Degrade gracefully: the attendance row is already saved. A sync
+      // failure (columns missing pre-migration, RLS, transient error) must
+      // never fail the core save — the balance just won't be in step until
+      // the next successful edit or a manual reconcile.
+      console.error(
+        "attendance→leave sync failed (attendance saved, balance not synced)",
+        err,
+      );
     }
   }
 
