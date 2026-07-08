@@ -45,8 +45,13 @@ export async function logWfhTodayAction(): Promise<ActionResult> {
   if (error) return { ok: false, error: error.message };
 
   // If this day previously held a Sick/Half entry, its auto-synced
-  // leave_request must go — WFH consumes no balance.
-  await clearAttendanceLeaveForDay(createAdminClient(), user.id, date);
+  // leave_request must go — WFH consumes no balance. Best-effort: the WFH
+  // upsert already succeeded, so don't fail the action on a sync error.
+  try {
+    await clearAttendanceLeaveForDay(createAdminClient(), user.id, date);
+  } catch (err) {
+    console.error("clearAttendanceLeaveForDay failed on WFH log", err);
+  }
 
   revalidatePath("/");
   revalidatePath("/history");
@@ -102,8 +107,13 @@ export async function deleteAttendanceAction(
   if (error) return { ok: false, error: error.message };
 
   // Drop any leave_request this day auto-created (Sick / Half), so the
-  // balance card releases the day back.
-  await clearAttendanceLeaveForDay(admin, before.employee_id, before.date);
+  // balance card releases the day back. Best-effort: the attendance row is
+  // already deleted, so a sync failure must not fail the action.
+  try {
+    await clearAttendanceLeaveForDay(admin, before.employee_id, before.date);
+  } catch (err) {
+    console.error("clearAttendanceLeaveForDay failed on delete", err);
+  }
 
   await admin.from("audit_log").insert({
     actor_id: auth.userId,

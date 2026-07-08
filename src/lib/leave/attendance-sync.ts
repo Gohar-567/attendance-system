@@ -12,6 +12,11 @@ import type { LeaveType } from "./types";
  *   - Sick       → a full Sick day
  *   - Half leave → half a Casual day (the org has no "half" balance)
  * Present / WFH / EWD consume nothing → no leave_request.
+ *
+ * Over-consumption is intentionally allowed (not blocked): matching the
+ * existing apply→approve flow, which never rejects a request for exceeding
+ * the allowance. The balance card shows `used / allowance` (e.g. 9/8) so an
+ * overrun is visible, and "remaining" is floored at 0 in the UI.
  */
 export function leaveShapeForAttendance(
   type: EditableType,
@@ -37,13 +42,16 @@ export async function clearAttendanceLeaveForDay(
   employeeId: string,
   date: string,
 ): Promise<void> {
-  await admin
+  const { error } = await admin
     .from("leave_requests")
     .delete()
     .eq("employee_id", employeeId)
     .eq("source", "attendance")
     .eq("from_date", date)
     .eq("to_date", date);
+  // The Supabase client returns errors rather than throwing; surface them
+  // so callers can decide whether to degrade gracefully.
+  if (error) throw new Error(`clearAttendanceLeaveForDay: ${error.message}`);
 }
 
 /**
@@ -70,7 +78,7 @@ export async function syncAttendanceLeaveForDay(
   const shape = leaveShapeForAttendance(opts.type);
   if (!shape) return;
 
-  await admin.from("leave_requests").insert({
+  const { error } = await admin.from("leave_requests").insert({
     employee_id: opts.employeeId,
     type: shape.leaveType,
     from_date: opts.date,
@@ -82,4 +90,5 @@ export async function syncAttendanceLeaveForDay(
     decided_at: new Date().toISOString(),
     source: "attendance",
   });
+  if (error) throw new Error(`syncAttendanceLeaveForDay: ${error.message}`);
 }

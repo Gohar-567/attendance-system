@@ -207,13 +207,24 @@ export async function saveDayAction(input: SaveDayInput): Promise<ActionResult> 
   // on the attendance row): that request already consumes the balance, so
   // syncing here would double-count. Those are edited via the leave flow.
   if (existingLog?.source !== "leave_request") {
-    await syncAttendanceLeaveForDay(admin, {
-      employeeId,
-      date: input.date,
-      type: input.type,
-      reason,
-      actorId: auth.userId,
-    });
+    try {
+      await syncAttendanceLeaveForDay(admin, {
+        employeeId,
+        date: input.date,
+        type: input.type,
+        reason,
+        actorId: auth.userId,
+      });
+    } catch (err) {
+      // Degrade gracefully: the attendance row is already saved. A sync
+      // failure (columns missing pre-migration, RLS, transient error) must
+      // never fail the core save — the balance just won't be in step until
+      // the next successful edit or a manual reconcile.
+      console.error(
+        "attendance→leave sync failed (attendance saved, balance not synced)",
+        err,
+      );
+    }
   }
 
   const hrOnOthers = isHr(auth.role) && employeeId !== auth.userId;

@@ -1,6 +1,13 @@
 -- =====================================================================
 -- ATTENDANCE ↔ LEAVE SYNC + HR DIRECT GRANTS
--- Paste into Supabase SQL Editor after deploying the PR.
+--
+-- ⚠️ RUN THIS BEFORE DEPLOYING THE CODE, NOT AFTER.
+-- The new code writes leave_requests.source / .days on every Sick/Half
+-- attendance save and on HR grants. If the code ships first, those
+-- INSERTs hit columns that don't exist yet and the sync fails until this
+-- runs. Forward-compatible: this migration is harmless against the old
+-- code (the extra columns just sit unused), so apply it first, then deploy.
+--
 -- Idempotent: ADD COLUMN IF NOT EXISTS + CREATE OR REPLACE VIEW.
 -- =====================================================================
 --
