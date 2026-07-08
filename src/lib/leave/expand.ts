@@ -75,5 +75,17 @@ export async function expandLeaveToAttendance(
     console.error("expandLeaveToAttendance upsert failed", error);
     return { daysWritten: 0 };
   }
+
+  // These days are now backed by this (real) leave_request. Remove any
+  // attendance-sourced leave the modal auto-created for the same dates so
+  // the balance doesn't count them twice.
+  await admin
+    .from("leave_requests")
+    .delete()
+    .eq("employee_id", request.employee_id)
+    .eq("source", "attendance")
+    .gte("from_date", request.from_date)
+    .lte("to_date", request.to_date);
+
   return { daysWritten: rows.length };
 }

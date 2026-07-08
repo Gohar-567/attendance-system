@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { TopBar } from "@/components/topbar";
 import { DashboardSections } from "@/components/dashboard/dashboard-sections";
 import { ResetPasswordButton } from "@/components/admin/reset-password-button";
+import { GrantLeaveDialog } from "@/components/admin/grant-leave-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -81,6 +82,10 @@ export default async function EmployeeCalendarPage({
                   Edit profile
                 </Link>
               </Button>
+              <GrantLeaveDialog
+                employeeId={data.employee.id}
+                employeeName={data.employee.full_name}
+              />
               <ResetPasswordButton
                 employeeId={data.employee.id}
                 employeeName={data.employee.full_name}

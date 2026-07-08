@@ -102,6 +102,17 @@ export interface DecideLeaveActionInput {
   note: string | null;
 }
 
+/** HR grants an already-approved leave directly, skipping the apply/approve
+ *  round-trip. Writes a leave_request (source='hr_manual') and expands it
+ *  into attendance_logs, exactly like an approved request would. */
+export interface GrantLeaveInput {
+  employeeId: string;
+  type: LeaveType;
+  fromDate: string;
+  toDate: string;
+  reason: string | null;
+}
+
 // ---- admin: employees -----------------------------------------------
 
 export type EmployeeRole = "employee" | "team_lead" | "hr" | "admin";

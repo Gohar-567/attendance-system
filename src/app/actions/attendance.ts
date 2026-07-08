@@ -13,6 +13,7 @@ import {
   closeSession,
 } from "@/lib/sessions";
 import { formatInstantTime } from "@/lib/time";
+import { clearAttendanceLeaveForDay } from "@/lib/leave/attendance-sync";
 import type { ActionResult } from "./types";
 
 /**
@@ -42,6 +43,10 @@ export async function logWfhTodayAction(): Promise<ActionResult> {
   );
 
   if (error) return { ok: false, error: error.message };
+
+  // If this day previously held a Sick/Half entry, its auto-synced
+  // leave_request must go — WFH consumes no balance.
+  await clearAttendanceLeaveForDay(createAdminClient(), user.id, date);
 
   revalidatePath("/");
   revalidatePath("/history");
@@ -95,6 +100,10 @@ export async function deleteAttendanceAction(
     .delete()
     .eq("id", logId);
   if (error) return { ok: false, error: error.message };
+
+  // Drop any leave_request this day auto-created (Sick / Half), so the
+  // balance card releases the day back.
+  await clearAttendanceLeaveForDay(admin, before.employee_id, before.date);
 
   await admin.from("audit_log").insert({
     actor_id: auth.userId,
