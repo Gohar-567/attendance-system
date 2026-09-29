@@ -20,7 +20,7 @@ export function ParserStatsCard({ stats }: { stats: ParserStats24h }) {
           </Link>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2">
           <Stat label="Auto-logged" value={stats.auto_logged} tone="default" />
           <Stat
             label="Awaiting confirm"
@@ -65,8 +65,8 @@ function Stat({
       </div>
       <div className="mt-1 flex items-baseline gap-2">
         <span className="text-xl font-semibold tabular-nums">{value}</span>
-        <Badge variant={variant} className="hidden sm:inline-flex">
-          {value === 0 ? "—" : value === 1 ? "1 msg" : `${value} msgs`}
+        <Badge variant={variant} className="whitespace-nowrap">
+          {value === 0 ? "—" : value === 1 ? "msg" : "msgs"}
         </Badge>
       </div>
     </div>

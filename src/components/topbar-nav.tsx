@@ -146,7 +146,8 @@ export function TopBarNav({
   const settingsActive = isItemActive(pathname, { href: "/settings" });
 
   return (
-    <header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur">
+    <>
+      <header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
         <Link href="/" className="flex min-w-0 items-center gap-3">
           <Avatar className="h-8 w-8 shrink-0">
@@ -238,8 +239,12 @@ export function TopBarNav({
           <Menu className="h-5 w-5" />
         </Button>
       </div>
+      </header>
 
-      {/* Mobile drawer */}
+      {/* Mobile drawer — rendered outside <header> deliberately: the
+          header's backdrop-blur creates a new containing block for
+          position:fixed descendants, which would shrink this panel down
+          to the header's own box instead of the full viewport. */}
       {drawerOpen && (
         <>
           <div
@@ -329,6 +334,6 @@ export function TopBarNav({
           </aside>
         </>
       )}
-    </header>
+    </>
   );
 }
