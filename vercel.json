@@ -16,6 +16,10 @@
     {
       "path": "/api/cron/checkout-reminder",
       "schedule": "0 16 * * 1-5"
+    },
+    {
+      "path": "/api/cron/month-end-reminder",
+      "schedule": "0 6 29 * *"
     }
   ]
 }
