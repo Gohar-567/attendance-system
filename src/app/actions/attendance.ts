@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { todayISO } from "@/lib/date";
+import { todayISO, firstOfMonthISO } from "@/lib/date";
 import { todayBusinessDate } from "@/lib/business-day";
 import {
   findOpenSession,
@@ -82,15 +82,17 @@ function isHr(role: string): boolean {
   return role === "hr" || role === "admin";
 }
 
-/** Delete an attendance_logs row (and its sessions, via cascade). HR only. */
+/**
+ * Delete an attendance_logs row (and its sessions, via cascade).
+ * HR/admin can delete anything. A regular employee may delete only their
+ * own entry, and only when it isn't locked (tied to an approved leave
+ * request) — the same rule already used for self-editing.
+ */
 export async function deleteAttendanceAction(
   logId: string,
 ): Promise<ActionResult> {
   const auth = await getActor();
   if (!auth.ok) return auth;
-  if (!isHr(auth.role)) {
-    return { ok: false, error: "Only HR can delete entries" };
-  }
 
   const admin = createAdminClient();
   const { data: before } = await admin
@@ -99,6 +101,28 @@ export async function deleteAttendanceAction(
     .eq("id", logId)
     .maybeSingle();
   if (!before) return { ok: false, error: "Entry not found" };
+
+  const owns = before.employee_id === auth.userId;
+  const locked =
+    before.source === "leave_request" && before.status === "approved";
+  if (!isHr(auth.role)) {
+    if (!owns) {
+      return { ok: false, error: "You can only delete your own entries" };
+    }
+    if (locked) {
+      return {
+        ok: false,
+        error:
+          "This entry came from an approved leave request — ask HR to change it",
+      };
+    }
+    if (before.date < firstOfMonthISO(todayBusinessDate())) {
+      return {
+        ok: false,
+        error: "You can only delete entries from the current month",
+      };
+    }
+  }
 
   const { error } = await admin
     .from("attendance_logs")

@@ -308,8 +308,10 @@ function DayDetailDialog({
     : !log || log.employee_id === currentUserId;
   const locked =
     !!log && log.source === "leave_request" && log.status === "approved";
-  const canEdit = isHr || (owns && !locked);
-  const canDelete = !!log && isHr;
+  const outOfMonth =
+    !isHr && !!date && date < firstOfMonthISO(todayISO);
+  const canEdit = isHr || (owns && !locked && !outOfMonth);
+  const canDelete = !!log && (isHr || (owns && !locked && !outOfMonth));
   const weekend = date ? isWeekend(date) : false;
 
   return (
@@ -332,11 +334,13 @@ function DayDetailDialog({
           <DialogDescription>
             {date && date > todayISO
               ? "This day hasn't happened yet."
-              : mode === "edit"
-                ? log
-                  ? "Change the details. Previous values are kept in the audit log."
-                  : "Log what you actually did — add one or more work sessions."
-                : "Attendance details and work sessions."}
+              : mode === "edit" && !log && outOfMonth
+                ? "You can only add entries for the current month. Ask HR to add or backdate this one."
+                : mode === "edit"
+                  ? log
+                    ? "Change the details. Previous values are kept in the audit log."
+                    : "Log what you actually did — add one or more work sessions."
+                  : "Attendance details and work sessions."}
           </DialogDescription>
         </DialogHeader>
 
@@ -349,7 +353,13 @@ function DayDetailDialog({
           />
         )}
 
-        {mode === "edit" && date && (
+        {mode === "edit" && date && !log && outOfMonth && (
+          <Button variant="outline" onClick={onClose}>
+            Close
+          </Button>
+        )}
+
+        {mode === "edit" && date && canEdit && (
           <DayForm
             date={date}
             log={log}
@@ -375,6 +385,14 @@ function DayDetailDialog({
                     title="This entry came from an approved leave request. Ask HR to change it."
                   >
                     Edit (locked)
+                  </Button>
+                ) : outOfMonth ? (
+                  <Button
+                    variant="outline"
+                    disabled
+                    title="You can only edit entries from the current month. Ask HR to change it."
+                  >
+                    Edit (past month)
                   </Button>
                 ) : null}
                 {canDelete && <DeleteButton logId={log.id} onDeleted={onClose} />}
