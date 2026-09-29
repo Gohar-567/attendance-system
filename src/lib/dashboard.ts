@@ -149,9 +149,7 @@ export async function loadDashboardData(
     thisMonthLogsRes.data == null
       ? monthLogs
       : (thisMonthLogsRes.data as { type: string }[]);
-  const wfhThisMonth = wfhSource.filter(
-    (l) => l.type === "wfh" || l.type === "ewd",
-  ).length;
+  const wfhThisMonth = wfhSource.filter((l) => l.type === "wfh").length;
   const todayHoliday =
     holidays.find((h) => h.date === today)?.name ?? null;
 

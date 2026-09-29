@@ -42,6 +42,7 @@ export function MonthlyReport({
     const acc = {
       present: 0,
       wfh: 0,
+      ewd: 0,
       half: 0,
       casual: 0,
       sick: 0,
@@ -53,6 +54,7 @@ export function MonthlyReport({
     for (const r of rows) {
       acc.present += r.present;
       acc.wfh += r.wfh;
+      acc.ewd += r.ewd;
       acc.half += r.half;
       acc.casual += r.casual;
       acc.sick += r.sick;
@@ -111,6 +113,7 @@ export function MonthlyReport({
                 <th className="px-3 py-2 font-medium">Team</th>
                 <th className="px-3 py-2 font-medium text-right">Present</th>
                 <th className="px-3 py-2 font-medium text-right">WFH</th>
+                <th className="px-3 py-2 font-medium text-right">EWD</th>
                 <th className="px-3 py-2 font-medium text-right">Half</th>
                 <th className="px-3 py-2 font-medium text-right">Casual</th>
                 <th className="px-3 py-2 font-medium text-right">Sick</th>
@@ -124,7 +127,7 @@ export function MonthlyReport({
               {rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={11}
+                    colSpan={12}
                     className="px-3 py-12 text-center text-sm text-muted-foreground"
                   >
                     No active employees in this filter.
@@ -148,6 +151,9 @@ export function MonthlyReport({
                       )}
                     >
                       {r.wfh}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {r.ewd}
                     </td>
                     <td
                       className={cn(
@@ -204,6 +210,9 @@ export function MonthlyReport({
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {totals.wfh}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">
+                    {totals.ewd}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {totals.half}
