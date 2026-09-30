@@ -92,10 +92,11 @@ export function HistoryTable({ logs, totals }: HistoryTableProps) {
   return (
     <div className="space-y-5">
       {/* Lifetime totals */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 sm:gap-3">
         <Stat label="Total entries" value={totals.total} />
         <Stat label="Present" value={totals.present} />
-        <Stat label="WFH" value={totals.wfh + totals.ewd} />
+        <Stat label="WFH" value={totals.wfh} />
+        <Stat label="EWD" value={totals.ewd} />
         <Stat
           label="Leave (full + sick + half)"
           value={totals.full_leave + totals.sick + totals.half_leave}

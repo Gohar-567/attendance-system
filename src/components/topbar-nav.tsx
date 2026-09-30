@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -16,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SignOutButton } from "@/components/sign-out-button";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 import type { EmployeeRole } from "@/lib/nav";
 
@@ -146,9 +148,18 @@ export function TopBarNav({
   const settingsActive = isItemActive(pathname, { href: "/settings" });
 
   return (
-    <header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur">
+    <>
+      <header className="sticky top-0 z-30 border-b bg-card/95 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 sm:px-6">
         <Link href="/" className="flex min-w-0 items-center gap-3">
+          <Image
+            src="/logo-icon.png"
+            alt="TAGS"
+            width={48}
+            height={48}
+            className="h-12 w-12 shrink-0"
+            priority
+          />
           <Avatar className="h-8 w-8 shrink-0">
             <AvatarFallback className="text-xs">
               {initials || "?"}
@@ -213,6 +224,7 @@ export function TopBarNav({
 
           <span aria-hidden className="mx-1 h-5 w-px bg-border" />
 
+          <ThemeToggle />
           <Button
             variant={settingsActive ? "secondary" : "ghost"}
             size="icon"
@@ -238,8 +250,12 @@ export function TopBarNav({
           <Menu className="h-5 w-5" />
         </Button>
       </div>
+      </header>
 
-      {/* Mobile drawer */}
+      {/* Mobile drawer — rendered outside <header> deliberately: the
+          header's backdrop-blur creates a new containing block for
+          position:fixed descendants, which would shrink this panel down
+          to the header's own box instead of the full viewport. */}
       {drawerOpen && (
         <>
           <div
@@ -312,6 +328,7 @@ export function TopBarNav({
               ))}
             </div>
             <div className="border-t p-3 space-y-1">
+              <ThemeToggle variant="row" />
               <Link
                 href="/settings"
                 className={cn(
@@ -329,6 +346,6 @@ export function TopBarNav({
           </aside>
         </>
       )}
-    </header>
+    </>
   );
 }

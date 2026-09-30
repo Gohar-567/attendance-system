@@ -11,6 +11,7 @@ export interface MonthlyReportRow {
   team_name: string | null;
   present: number;
   wfh: number;
+  ewd: number;
   half: number;
   casual: number;
   sick: number;
@@ -105,6 +106,7 @@ export async function fetchMonthlySummary(opts: {
       team_name: e.team?.name ?? null,
       present: 0,
       wfh: 0,
+      ewd: 0,
       half: 0,
       casual: 0,
       sick: 0,
@@ -137,8 +139,10 @@ export async function fetchMonthlySummary(opts: {
         row.present++;
         break;
       case "wfh":
-      case "ewd":
         row.wfh++;
+        break;
+      case "ewd":
+        row.ewd++;
         break;
       case "half_leave":
         row.half++;
@@ -176,15 +180,15 @@ export async function fetchMonthlySummary(opts: {
   let totalWfh = 0;
   let totalLeaves = 0;
   for (const r of rows) {
-    totalCovered += r.present + r.wfh + r.half * 0.5;
-    totalWfh += r.wfh;
+    totalCovered += r.present + r.wfh + r.ewd + r.half * 0.5;
+    totalWfh += r.wfh + r.ewd;
     totalLeaves += r.casual + r.sick + r.annual + r.half * 0.5;
   }
 
   const employeeCount = rows.length;
   const denominator = workingDays * Math.max(1, employeeCount);
   const wfhDenominator = rows.reduce(
-    (acc, r) => acc + r.present + r.wfh + r.half,
+    (acc, r) => acc + r.present + r.wfh + r.ewd + r.half,
     0,
   );
 

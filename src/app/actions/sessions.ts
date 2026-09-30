@@ -15,6 +15,7 @@ import {
   todayBusinessDate,
   MAX_SESSION_HOURS,
 } from "@/lib/business-day";
+import { firstOfMonthISO } from "@/lib/date";
 import { syncAttendanceLeaveForDay } from "@/lib/leave/attendance-sync";
 import type { ActionResult, SaveDayInput, DaySessionInput } from "./types";
 
@@ -77,6 +78,15 @@ export async function saveDayAction(input: SaveDayInput): Promise<ActionResult> 
 
   if (input.date > todayBusinessDate()) {
     return { ok: false, error: "That day hasn't happened yet" };
+  }
+  if (
+    !isHr(auth.role) &&
+    input.date < firstOfMonthISO(todayBusinessDate())
+  ) {
+    return {
+      ok: false,
+      error: "You can only add or edit entries from the current month",
+    };
   }
   if (!EDITABLE_TYPES.includes(input.type as EditableType)) {
     return { ok: false, error: "Invalid type" };
