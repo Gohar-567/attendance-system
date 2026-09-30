@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
@@ -68,11 +69,21 @@ export function LoginForm() {
 
   return (
     <div className="w-full max-w-sm space-y-6 rounded-lg border bg-card p-8 shadow-sm">
-      <div className="space-y-1">
-        <h1 className="text-xl font-semibold tracking-tight">Attendance</h1>
-        <p className="text-sm text-muted-foreground">
-          Sign in with Slack or your password.
-        </p>
+      <div>
+        <Image
+          src="/logo-wordmark.png"
+          alt="TAGS — Technology and Global Solutions"
+          width={500}
+          height={500}
+          className="mx-auto h-28 w-auto"
+          priority
+        />
+        <div className="-mt-6 space-y-1 text-center">
+          <h1 className="text-xl font-semibold tracking-tight">Attendance</h1>
+          <p className="text-sm text-muted-foreground">
+            Sign in with Slack or your password.
+          </p>
+        </div>
       </div>
 
       {/* 1. Slack OAuth — primary */}

@@ -9,7 +9,7 @@ const TILES: {
   { key: "present", label: "Present", ring: "ring-emerald-500/40" },
   { key: "wfh", label: "WFH", ring: "ring-blue-500/40" },
   { key: "half", label: "Half", ring: "ring-amber-500/50" },
-  { key: "on_leave", label: "On leave", ring: "ring-red-500/40" },
+  { key: "on_leave", label: "On leave", ring: "ring-[#ff3333]/40" },
   { key: "unmarked", label: "Unmarked", ring: "ring-border" },
 ];
 

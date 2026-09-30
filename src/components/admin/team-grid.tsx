@@ -35,12 +35,12 @@ const TONE: Record<string, { tile: string; text: string }> = {
     text: "text-amber-900 dark:text-amber-200",
   },
   full_leave: {
-    tile: "bg-red-500/15 border-red-500/40",
-    text: "text-red-900 dark:text-red-200",
+    tile: "bg-[#ff3333]/15 border-[#ff3333]/40",
+    text: "text-[#b30000] dark:text-[#ff8080]",
   },
   sick: {
-    tile: "bg-red-500/15 border-red-500/40",
-    text: "text-red-900 dark:text-red-200",
+    tile: "bg-[#ff3333]/15 border-[#ff3333]/40",
+    text: "text-[#b30000] dark:text-[#ff8080]",
   },
   holiday: {
     tile: "bg-muted border-border",

@@ -248,7 +248,7 @@ function Legend() {
     { label: "Present", cls: "bg-emerald-500/30 border-emerald-500/50" },
     { label: "WFH / EWD", cls: "bg-blue-500/30 border-blue-500/50" },
     { label: "Half", cls: "bg-amber-500/30 border-amber-500/60" },
-    { label: "Leave / Sick", cls: "bg-red-500/30 border-red-500/50" },
+    { label: "Leave / Sick", cls: "bg-[#ff3333]/30 border-[#ff3333]/50" },
     { label: "Off", cls: "bg-muted border-border" },
   ];
   return (

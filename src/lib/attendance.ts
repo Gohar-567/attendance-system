@@ -163,7 +163,7 @@ export function cellClassesFor(opts: {
         break;
       case "full_leave":
       case "sick":
-        palette = "bg-red-500/15 border-red-500/40 text-red-900 dark:text-red-200";
+        palette = "bg-[#ff3333]/15 border-[#ff3333]/40 text-[#b30000] dark:text-[#ff8080]";
         break;
       case "holiday":
         palette = "bg-muted border-border text-muted-foreground";

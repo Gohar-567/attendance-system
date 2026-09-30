@@ -174,7 +174,7 @@ export function MonthlyReport({
                       className={cn(
                         "px-3 py-2 text-right tabular-nums",
                         r.annual > 4 &&
-                          "font-bold text-red-700 dark:text-red-300",
+                          "font-bold text-[#e62e2e] dark:text-[#ff8080]",
                       )}
                     >
                       {r.annual}
