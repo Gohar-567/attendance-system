@@ -83,6 +83,27 @@ export function karachiInstant(dateISO: string, timeHHMMSS: string): string {
   return `${dateISO}T${time}${KARACHI_OFFSET}`;
 }
 
+/**
+ * Resolve a typed check-in time ("9:55 pm") to an instant. The time is
+ * anchored to today's Karachi calendar date, but a check-in can't be in the
+ * future: sent after midnight, "9:55 pm" means the previous evening (still
+ * the same business day), so it rolls back one day. Returns null when even
+ * the rolled-back instant is more than MAX_SESSION_HOURS old — i.e. the
+ * time is a future time earlier today, not a late-night one.
+ */
+export function resolveCheckinInstant(
+  timeHHMMSS: string,
+  now: Date = new Date(),
+): string | null {
+  const today = karachiParts(now).date;
+  let instant = karachiInstant(today, timeHHMMSS);
+  if (new Date(instant).getTime() > now.getTime()) {
+    instant = karachiInstant(minusOneDay(today), timeHHMMSS);
+  }
+  const ageHours = (now.getTime() - new Date(instant).getTime()) / 3_600_000;
+  return ageHours > MAX_SESSION_HOURS ? null : instant;
+}
+
 /** Duration between two instants in hours (ended − started). */
 export function durationHours(startedAt: string, endedAt: string): number {
   const ms = new Date(endedAt).getTime() - new Date(startedAt).getTime();

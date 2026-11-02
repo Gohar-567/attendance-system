@@ -42,7 +42,7 @@ export function CheckInOutControls({ state }: CheckInOutControlsProps) {
         variant="secondary"
         onClick={handleCheckIn}
         disabled={pending}
-        className="bg-white text-blue-700 hover:bg-white/90"
+        className="bg-primary-foreground text-primary hover:bg-primary-foreground/90 dark:bg-primary dark:text-primary-foreground dark:hover:bg-primary/90"
       >
         <LogIn className="h-4 w-4" />
         {pending ? "Checking in…" : "Check in now"}
@@ -57,7 +57,7 @@ export function CheckInOutControls({ state }: CheckInOutControlsProps) {
         variant="secondary"
         onClick={handleCheckOut}
         disabled={pending}
-        className="bg-white/15 text-white hover:bg-white/25 border border-white/30"
+        className="bg-primary-foreground/15 text-primary-foreground hover:bg-primary-foreground/25 border border-primary-foreground/30 dark:bg-transparent dark:text-foreground dark:hover:bg-primary/10 dark:border-primary/40"
       >
         <LogOut className="h-4 w-4" />
         {pending ? "Checking out…" : "Check out"}
