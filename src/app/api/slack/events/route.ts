@@ -11,9 +11,14 @@ import {
 } from "@/lib/slack/identity";
 import { recordParse, upsertAttendanceLog } from "@/lib/slack/log";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { todayISO, toISODate } from "@/lib/date";
+import { todayISO } from "@/lib/date";
 import { formatInstantTime, instantToLocalInput } from "@/lib/time";
-import { businessDate, karachiInstant, todayBusinessDate } from "@/lib/business-day";
+import {
+  businessDate,
+  karachiInstant,
+  resolveCheckinInstant,
+  todayBusinessDate,
+} from "@/lib/business-day";
 import {
   findOpenSession,
   resolveOpenSessionsForCheckin,
@@ -418,11 +423,30 @@ async function handleCheckinOrInfo(args: {
   }
 
   // ---- checkin → open a work session --------------------------------
-  // Anchor the started_at to now's Karachi wall-clock date + parsed time.
-  const nowKarachiDate = toISODate(new Date());
+  // Anchor the started_at to a Karachi wall-clock time that isn't in the
+  // future (a late-night "9:55 pm" sent after midnight is last evening).
   const startedAt = args.time
-    ? karachiInstant(nowKarachiDate, args.time)
+    ? resolveCheckinInstant(args.time)
     : new Date().toISOString();
+  if (!startedAt) {
+    const { alreadyProcessed } = await recordParse({
+      slackUserId: args.slackUserId,
+      channelId: args.channelId,
+      messageTs: args.lineTs,
+      rawText: args.lineText,
+      method: "regex",
+      parsedType: args.type,
+      parsedDate: args.date,
+      parsedReason: parsedReasonWithTime(args.parsedName, args.time),
+      confidence: args.confidence,
+    });
+    if (alreadyProcessed) return false;
+    await dmSlackUser(
+      args.slackUserId,
+      `:warning: ${args.time?.slice(0, 5)} is still in the future, so I didn't start a session. Please check the time and try again.`,
+    );
+    return false;
+  }
   const sessionDate = businessDate(startedAt);
 
   // Refuse to start a session on a leave/sick day.

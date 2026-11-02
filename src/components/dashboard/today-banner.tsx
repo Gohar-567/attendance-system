@@ -74,21 +74,21 @@ export function TodayBanner({
       <Banner tone="primary" date={dateLabel} icon={CalendarCheck}>
         <span className="font-semibold">{TYPE_LABEL[log.type]}</span>
         {log.half !== "full" && (
-          <span className="ml-1 text-blue-100">
+          <span className="ml-1 text-primary-foreground/85 dark:text-foreground/75">
             · {log.half === "first_half" ? "first half" : "second half"}
           </span>
         )}
         {log.status === "auto_logged" && (
           <Badge
             variant="secondary"
-            className="ml-3 border-white/20 bg-white/15 text-blue-50"
+            className="ml-3 border-primary-foreground/20 bg-primary-foreground/15 text-primary-foreground dark:border-primary/40 dark:bg-primary/25 dark:text-foreground"
           >
             <Sparkles className="mr-1 h-3 w-3" />
             Auto-logged
           </Badge>
         )}
         {log.reason && (
-          <div className="mt-1 text-sm font-normal text-blue-100">
+          <div className="mt-1 text-sm font-normal text-primary-foreground/85 dark:text-foreground/75">
             {log.reason}
           </div>
         )}
@@ -124,21 +124,21 @@ export function TodayBanner({
     >
       <span className="font-semibold">{TYPE_LABEL[log.type]}</span>
       {log.half !== "full" && (
-        <span className="ml-1 text-blue-100">
+        <span className="ml-1 text-primary-foreground/85 dark:text-foreground/75">
           · {log.half === "first_half" ? "first half" : "second half"}
         </span>
       )}
       {log.status === "auto_logged" && (
         <Badge
           variant="secondary"
-          className="ml-3 border-white/20 bg-white/15 text-blue-50"
+          className="ml-3 border-primary-foreground/20 bg-primary-foreground/15 text-primary-foreground dark:border-primary/40 dark:bg-primary/25 dark:text-foreground"
         >
           <Sparkles className="mr-1 h-3 w-3" />
           Auto-logged
         </Badge>
       )}
       {log.type !== "half_leave" && (
-        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-normal text-blue-50/95">
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-normal text-primary-foreground/95 dark:text-foreground/80">
           {firstStart ? (
             <span className="inline-flex items-center gap-1">
               <Clock className="h-3.5 w-3.5 opacity-80" />
@@ -164,7 +164,7 @@ export function TodayBanner({
         </div>
       )}
       {log.reason && log.type === "half_leave" && (
-        <div className="mt-1 text-sm font-normal text-blue-100">
+        <div className="mt-1 text-sm font-normal text-primary-foreground/85 dark:text-foreground/75">
           {log.reason}
         </div>
       )}
@@ -187,7 +187,7 @@ function Banner({
 }) {
   const cls =
     tone === "primary"
-      ? "bg-blue-600 text-white"
+      ? "bg-primary text-primary-foreground dark:border dark:border-primary/40 dark:bg-primary/20 dark:text-foreground"
       : tone === "warn"
         ? "bg-amber-500/90 text-amber-950"
         : "bg-muted text-foreground";
@@ -195,7 +195,11 @@ function Banner({
   return (
     <section className={`rounded-xl px-5 py-4 shadow-sm ${cls}`}>
       <div className="flex items-start gap-3">
-        {Icon && <Icon className="mt-0.5 h-5 w-5 shrink-0" />}
+        {Icon && (
+          <Icon
+            className={`mt-0.5 h-5 w-5 shrink-0 ${tone === "primary" ? "dark:text-primary" : ""}`}
+          />
+        )}
         <div className="min-w-0 flex-1">
           <div className="text-xs uppercase tracking-wide opacity-80">
             {date}
